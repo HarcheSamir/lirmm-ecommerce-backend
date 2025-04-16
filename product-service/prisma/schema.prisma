@@ -1,0 +1,108 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StockMovementType {
+  INITIAL_STOCK
+  ADMIN_UPDATE
+  ORDER
+  ADJUSTMENT
+  ORDER_CANCELLED
+}
+
+model Category {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  parentId  String?
+  isLeaf    Boolean   @default(false)
+  imageUrl  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  parent    Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children  Category[] @relation("CategoryHierarchy")
+  products  ProductCategory[]
+
+  @@index([parentId])
+  @@index([slug])
+}
+
+model Product {
+  id          String    @id @default(uuid())
+  sku         String    @unique
+  name        String
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  variants    Variant[]
+  categories  ProductCategory[]
+  images      ProductImage[]
+}
+
+model ProductImage {
+  id         String   @id @default(uuid())
+  productId  String
+  imageUrl   String
+  altText    String?
+  isPrimary  Boolean  @default(false)
+  order      Int?
+  createdAt  DateTime @default(now())
+
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model Variant {
+  id                String    @id @default(uuid())
+  productId         String
+  attributes        Json
+  price             Decimal
+  costPrice         Decimal?
+  stockQuantity     Int       @default(0) // This will be updated by stock movements
+  lowStockThreshold Int?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  product         Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stockMovements  StockMovement[]
+
+  @@index([productId])
+}
+
+model ProductCategory {
+  productId  String
+  categoryId String
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category  Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([productId, categoryId])
+  @@index([categoryId])
+}
+
+model StockMovement {
+  id              String            @id @default(uuid())
+  variantId       String
+  changeQuantity  Int
+  type            StockMovementType
+  timestamp       DateTime          @default(now())
+  reason          String?
+  relatedOrderId  String?
+
+  // Relation to Variant (No Cascade)
+  variant         Variant           @relation(fields: [variantId], references: [id], onUpdate: NoAction, onDelete: Restrict) // Explicit Restrict is clearer
+
+  @@index([variantId])
+  @@index([timestamp])
+  @@index([relatedOrderId])
+}

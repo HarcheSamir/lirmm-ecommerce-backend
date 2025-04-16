@@ -1,0 +1,36 @@
+# Node.js
+**/node_modules/
+**/package-lock.json
+
+# Logs
+**/logs/
+**/*.log
+**/npm-debug.log*
+
+# dotenv environment variables
+**/.env
+**/.env.*
+
+# Prisma
+**/prisma/migrations/
+**/prisma/dev.db
+**/prisma/*.db-journal
+
+# Upload folders
+**/uploads/
+
+# VSCode
+.vscode/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Build artifacts (if any)
+dist/
+build/
+
+# Others
+*.swp
+*.swo
+

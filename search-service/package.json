@@ -1,0 +1,26 @@
+{
+    "name": "search-service",
+    "version": "1.0.0",
+    "main": "src/index.js",
+    "scripts": {
+      "start": "node src/index.js",
+      "dev": "nodemon src/index.js",
+      "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "dependencies": {
+      "@elastic/elasticsearch": "^8.11.0", 
+      "consul": "^2.0.1",
+      "cors": "^2.8.5",
+      "dotenv": "^16.4.7",
+      "express": "^4.19.2", 
+      "kafkajs": "^2.2.4", 
+      "morgan": "^1.10.0",
+      "nodemon": "^3.1.0"
+
+    },
+
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "description": "Microservice for searching data indexed in Elasticsearch"
+  }
