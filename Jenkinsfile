@@ -1,25 +1,26 @@
-// Jenkinsfile (Corrected Version)
+// Jenkinsfile (Corrected - Lists Defined OUTSIDE Pipeline Block)
 
+// Define lists as top-level Groovy variables BEFORE the pipeline block
+def CUSTOM_SERVICES = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service']
+def PUBLIC_IMAGES = [
+    'postgres:15-alpine',
+    'confluentinc/cp-zookeeper:7.3.2',
+    'confluentinc/cp-kafka:7.3.2',
+    'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
+    'hashicorp/consul:1.18'
+]
+def DEPLOYMENT_NAMES = [
+    'zookeeper-deployment', 'kafka-deployment', 'elasticsearch-deployment',
+    'consul-deployment', 'auth-db-deployment', 'product-db-deployment',
+    'api-gateway-deployment', 'auth-service-deployment', 'product-service-deployment',
+    'image-service-deployment', 'search-service-deployment'
+]
+
+
+// Now start the pipeline block
 pipeline {
     // Agent needs docker, kubectl, kind, envsubst installed
     agent any
-
-    // Define lists as top-level Groovy variables within the pipeline scope
-    // Moved from environment block
-    def CUSTOM_SERVICES = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service']
-    def PUBLIC_IMAGES = [
-        'postgres:15-alpine',
-        'confluentinc/cp-zookeeper:7.3.2',
-        'confluentinc/cp-kafka:7.3.2',
-        'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
-        'hashicorp/consul:1.18'
-    ]
-    def DEPLOYMENT_NAMES = [
-        'zookeeper-deployment', 'kafka-deployment', 'elasticsearch-deployment',
-        'consul-deployment', 'auth-db-deployment', 'product-db-deployment',
-        'api-gateway-deployment', 'auth-service-deployment', 'product-service-deployment',
-        'image-service-deployment', 'search-service-deployment'
-    ]
 
     options {
         timestamps()
@@ -35,7 +36,6 @@ pipeline {
         KIND_CONFIG_FILE = './kind-deployment/kind-cluster-config.yaml'
         KUBERNETES_MANIFEST_TEMPLATE_FILE = './kind-deployment/kubernetes-manifests.yaml'
         KUBERNETES_MANIFEST_RENDERED_FILE = "./kind-deployment/kubernetes-manifests-rendered-${env.BUILD_ID}.yaml"
-        // List variables moved outside this block
     }
 
     stages {
@@ -53,7 +53,7 @@ pipeline {
         stage('Build Custom Docker Images') {
             steps {
                 script {
-                    // Corrected Loop: Iterate over the Groovy list variable directly
+                    // Loop iterates over the top-level Groovy variable
                     CUSTOM_SERVICES.each { serviceDir ->
                         def imageName = "${env.IMAGE_PREFIX}/${serviceDir}:${env.IMAGE_TAG}"
                         echo "Building Docker image ${imageName} from ./${serviceDir}..."
@@ -74,19 +74,19 @@ pipeline {
                     sh "kind create cluster --name ${env.KIND_CLUSTER_NAME} --config ${env.KIND_CONFIG_FILE}"
 
                     echo "Pulling required public images to host cache..."
-                    // Corrected Loop: Iterate over the Groovy list variable directly
+                    // Loop iterates over the top-level Groovy variable
                     PUBLIC_IMAGES.each { imageName ->
                          sh "docker pull ${imageName} || true"
                     }
 
                     echo "Loading required images into Kind cluster ${env.KIND_CLUSTER_NAME}..."
-                    // Corrected Loop: Iterate over the Groovy list variable directly
+                    // Loop iterates over the top-level Groovy variable
                     CUSTOM_SERVICES.each { serviceDir ->
                         def imageName = "${env.IMAGE_PREFIX}/${serviceDir}:${env.IMAGE_TAG}"
                         echo "Loading custom image: ${imageName}"
                         sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
                     }
-                    // Corrected Loop: Iterate over the Groovy list variable directly
+                    // Loop iterates over the top-level Groovy variable
                     PUBLIC_IMAGES.each { imageName ->
                         echo "Loading public image: ${imageName}"
                          sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
@@ -110,7 +110,7 @@ pipeline {
 
                     echo "Waiting for deployments to rollout..."
                     timeout(time: 15, unit: 'MINUTES') {
-                        // Corrected Loop: Iterate over the Groovy list variable directly
+                        // Loop iterates over the top-level Groovy variable
                         DEPLOYMENT_NAMES.each { deploymentName ->
                            echo "Waiting for deployment/${deploymentName} rollout status..."
                            sh "kubectl rollout status deployment/${deploymentName} --watch=true --timeout=10m"
