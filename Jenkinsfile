@@ -1,4 +1,4 @@
-// Jenkinsfile (Corrected Version - Lists Defined OUTSIDE Pipeline Block, Targets WSL Agent)
+// Jenkinsfile (Fixed Kind Cluster Name, Cluster Remains After Build)
 
 // Define lists as top-level Groovy variables BEFORE the pipeline block
 def CUSTOM_SERVICES = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service']
@@ -19,8 +19,8 @@ def DEPLOYMENT_NAMES = [
 
 // Now start the pipeline block
 pipeline {
-    // *** Tell Jenkins to run on the agent with the 'wsl' label (or whatever you used) ***
-    agent { label 'wsl' } // Adjust 'wsl' if you used a different label in Jenkins Node config
+    // Run on WSL agent
+    agent { label 'wsl' }
 
     options {
         timestamps()
@@ -29,10 +29,11 @@ pipeline {
     }
 
     environment {
-        // --- Configuration (Keep simple string assignments here) ---
-        IMAGE_PREFIX = 'library' // Change if using a specific registry
-        IMAGE_TAG = "${env.BUILD_ID}" // Use Jenkins Build ID
-        KIND_CLUSTER_NAME = "jenkins-${env.JOB_NAME}-${env.BUILD_NUMBER}".replaceAll('[^a-zA-Z0-9-]', '-').toLowerCase()
+        // --- Configuration ---
+        IMAGE_PREFIX = 'library'
+        IMAGE_TAG = "${env.BUILD_ID}"
+        // *** CHANGED: Use a fixed, predictable name for the Kind cluster ***
+        KIND_CLUSTER_NAME = "lirmm-ecommerce-dev-jenkins" // Or any fixed name you prefer
         KIND_CONFIG_FILE = './kind-deployment/kind-cluster-config.yaml'
         KUBERNETES_MANIFEST_TEMPLATE_FILE = './kind-deployment/kubernetes-manifests.yaml'
         KUBERNETES_MANIFEST_RENDERED_FILE = "./kind-deployment/kubernetes-manifests-rendered-${env.BUILD_ID}.yaml"
@@ -41,19 +42,16 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                // Assuming 'git' is installed on WSL agent
-                cleanWs() // Optional, but good practice
+                cleanWs()
                 echo "Workspace cleaned."
                 checkout scm
                 echo "Code checked out from SCM."
-                 // Verify manifest template exists
                 sh "test -f ${env.KUBERNETES_MANIFEST_TEMPLATE_FILE} || (echo 'ERROR: Manifest template file not found!' && exit 1)"
             }
         }
 
         stage('Build Custom Docker Images') {
             steps {
-                 // This now runs natively on the WSL agent, using its docker install
                 script {
                     CUSTOM_SERVICES.each { serviceDir ->
                         def imageName = "${env.IMAGE_PREFIX}/${serviceDir}:${env.IMAGE_TAG}"
@@ -65,15 +63,15 @@ pipeline {
             }
         }
 
-        stage('Setup Temporary Kind Cluster') {
+        stage('Setup Kind Cluster') {
             steps {
-                 // Runs natively on WSL agent
                 script {
-                    echo "Checking for and cleaning up old Kind cluster: ${env.KIND_CLUSTER_NAME}"
+                    // This step now ensures any cluster with the *fixed name* is removed first
+                    echo "Checking for and cleaning up existing Kind cluster: ${env.KIND_CLUSTER_NAME}"
                     sh "kind delete cluster --name ${env.KIND_CLUSTER_NAME} || true"
 
                     echo "Creating Kind cluster: ${env.KIND_CLUSTER_NAME} using ${env.KIND_CONFIG_FILE}"
-                    // kind create sets the DEFAULT KUBECONFIG on the agent (e.g., ~/.kube/config)
+                    // kind create uses the fixed name now and updates default kubeconfig
                     sh "kind create cluster --name ${env.KIND_CLUSTER_NAME} --config ${env.KIND_CONFIG_FILE}"
 
                     echo "Pulling required public images to host cache..."
@@ -82,7 +80,6 @@ pipeline {
                     }
 
                     echo "Loading required images into Kind cluster ${env.KIND_CLUSTER_NAME}..."
-                     // Image loading still needed, reads from WSL docker cache
                     CUSTOM_SERVICES.each { serviceDir ->
                         def imageName = "${env.IMAGE_PREFIX}/${serviceDir}:${env.IMAGE_TAG}"
                         echo "Loading custom image: ${imageName}"
@@ -99,21 +96,18 @@ pipeline {
 
         stage('Deploy Application to Kind') {
              steps {
-                 // Runs natively on WSL agent using its default kube context
+                 // Uses default context modified by 'kind create'
                 script {
-                    echo "Ensuring kubectl context is set (kind create should handle this)..."
-                    // Optional explicit check/set:
+                    echo "Ensuring kubectl context is set..."
                     sh "kubectl config use-context kind-${env.KIND_CLUSTER_NAME}"
                     echo "Verifying kubectl connection to cluster..."
                     sh "kubectl cluster-info"
                     sh "kubectl get nodes"
 
                     echo "Rendering Kubernetes manifest with image details..."
-                    // envsubst must be installed on WSL agent
                     sh "export IMAGE_PREFIX='${env.IMAGE_PREFIX}' && export IMAGE_TAG='${env.IMAGE_TAG}' && envsubst < ${env.KUBERNETES_MANIFEST_TEMPLATE_FILE} > ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
 
                     echo "Applying rendered Kubernetes manifests: ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
-                    // Uses default context now, no --kubeconfig needed
                     sh "kubectl apply -f ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
 
                     echo "Waiting for deployments to rollout..."
@@ -128,7 +122,6 @@ pipeline {
                     sleep(time: 15, unit: 'SECONDS')
                     echo "Checking Consul service health (informational)..."
                      try {
-                        // assuming curl installed on WSL
                         sh """
                            kubectl exec -i deployment/consul-deployment -c consul -- curl -s http://localhost:8500/v1/health/state/any > consul_health.txt
                            echo '--- Consul Health ---'
@@ -151,7 +144,7 @@ pipeline {
         stage('Integration/E2E Tests') {
              steps {
                 echo "Running tests against deployed services on Kind..."
-                echo "API Gateway access via NodePort: http://localhost:13000" // Assuming agent runs on the same machine accessing localhost
+                echo "API Gateway access via NodePort: http://localhost:13000" // Still relies on the port mapping
                 sleep(time: 10, unit: 'SECONDS') // Placeholder
              }
         }
@@ -164,14 +157,17 @@ pipeline {
                  echo "Starting post-build cleanup..."
                  echo "Removing rendered manifest file: ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
                  sh "rm -f ${env.KUBERNETES_MANIFEST_RENDERED_FILE} || true"
-                 // Cleanup done via agent's native 'kind' command
-                 echo "Deleting Kind cluster: ${env.KIND_CLUSTER_NAME}"
-                 sh "kind delete cluster --name ${env.KIND_CLUSTER_NAME} || true"
-                 echo "Cleanup finished."
+
+                 // --- CHANGED: DO NOT DELETE CLUSTER HERE ---
+                 echo "Kind cluster ${env.KIND_CLUSTER_NAME} left running."
+                 // echo "Deleting Kind cluster: ${env.KIND_CLUSTER_NAME}" // Commented out
+                 // sh "kind delete cluster --name ${env.KIND_CLUSTER_NAME} || true" // Commented out
+
+                 echo "Cleanup finished (Manifests removed, Cluster PERSISTS)."
              }
         }
         success {
-            echo "Pipeline successful. Application deployed and validated in Kind cluster: ${env.KIND_CLUSTER_NAME}"
+            echo "Pipeline successful. Application deployed to Kind cluster: ${env.KIND_CLUSTER_NAME}"
         }
         failure {
             echo "Pipeline failed."
