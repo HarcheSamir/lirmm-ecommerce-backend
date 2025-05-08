@@ -1,4 +1,4 @@
-// Jenkinsfile (Corrected - Lists Defined OUTSIDE Pipeline Block)
+// Jenkinsfile (Corrected - Fix kubectl connectivity from Jenkins container to Kind)
 
 // Define lists as top-level Groovy variables BEFORE the pipeline block
 def CUSTOM_SERVICES = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service']
@@ -36,6 +36,8 @@ pipeline {
         KIND_CONFIG_FILE = './kind-deployment/kind-cluster-config.yaml'
         KUBERNETES_MANIFEST_TEMPLATE_FILE = './kind-deployment/kubernetes-manifests.yaml'
         KUBERNETES_MANIFEST_RENDERED_FILE = "./kind-deployment/kubernetes-manifests-rendered-${env.BUILD_ID}.yaml"
+        // Path for the temporary internal kubeconfig
+        KIND_INTERNAL_KUBECONFIG = "${WORKSPACE}/kind-kubeconfig-${env.BUILD_ID}.yaml"
     }
 
     stages {
@@ -45,7 +47,6 @@ pipeline {
                 echo "Workspace cleaned."
                 checkout scm
                 echo "Code checked out from SCM."
-                 // Verify manifest template exists
                 sh "test -f ${env.KUBERNETES_MANIFEST_TEMPLATE_FILE} || (echo 'ERROR: Manifest template file not found!' && exit 1)"
             }
         }
@@ -53,7 +54,6 @@ pipeline {
         stage('Build Custom Docker Images') {
             steps {
                 script {
-                    // Loop iterates over the top-level Groovy variable
                     CUSTOM_SERVICES.each { serviceDir ->
                         def imageName = "${env.IMAGE_PREFIX}/${serviceDir}:${env.IMAGE_TAG}"
                         echo "Building Docker image ${imageName} from ./${serviceDir}..."
@@ -74,24 +74,26 @@ pipeline {
                     sh "kind create cluster --name ${env.KIND_CLUSTER_NAME} --config ${env.KIND_CONFIG_FILE}"
 
                     echo "Pulling required public images to host cache..."
-                    // Loop iterates over the top-level Groovy variable
                     PUBLIC_IMAGES.each { imageName ->
                          sh "docker pull ${imageName} || true"
                     }
 
                     echo "Loading required images into Kind cluster ${env.KIND_CLUSTER_NAME}..."
-                    // Loop iterates over the top-level Groovy variable
                     CUSTOM_SERVICES.each { serviceDir ->
                         def imageName = "${env.IMAGE_PREFIX}/${serviceDir}:${env.IMAGE_TAG}"
                         echo "Loading custom image: ${imageName}"
                         sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
                     }
-                    // Loop iterates over the top-level Groovy variable
                     PUBLIC_IMAGES.each { imageName ->
                         echo "Loading public image: ${imageName}"
                          sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
                     }
                     echo "Finished loading images into Kind."
+
+                    // *** ADDED: Get internal kubeconfig AFTER cluster creation ***
+                    echo "Getting internal kubeconfig for Kind cluster ${env.KIND_CLUSTER_NAME}..."
+                    sh "kind get kubeconfig --name ${env.KIND_CLUSTER_NAME} --internal > ${env.KIND_INTERNAL_KUBECONFIG}"
+                    echo "Internal kubeconfig saved to ${env.KIND_INTERNAL_KUBECONFIG}"
                 }
             }
         }
@@ -99,21 +101,26 @@ pipeline {
         stage('Deploy Application to Kind') {
              steps {
                 script {
-                    echo "Ensuring kubectl context is set to Kind cluster: ${env.KIND_CLUSTER_NAME}"
-                    sh "kubectl config use-context kind-${env.KIND_CLUSTER_NAME}"
+                    echo "Using Internal Kubeconfig: ${env.KIND_INTERNAL_KUBECONFIG}"
+
+                    // *** ADDED: Verify kubectl can connect using the internal config ***
+                    echo "Verifying kubectl connection..."
+                    sh "kubectl --kubeconfig ${env.KIND_INTERNAL_KUBECONFIG} cluster-info"
+                    sh "kubectl --kubeconfig ${env.KIND_INTERNAL_KUBECONFIG} get nodes"
 
                     echo "Rendering Kubernetes manifest with image details..."
                     sh "export IMAGE_PREFIX='${env.IMAGE_PREFIX}' && export IMAGE_TAG='${env.IMAGE_TAG}' && envsubst < ${env.KUBERNETES_MANIFEST_TEMPLATE_FILE} > ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
 
                     echo "Applying rendered Kubernetes manifests: ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
-                    sh "kubectl apply -f ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
+                    // *** MODIFIED: Pass internal kubeconfig to apply ***
+                    sh "kubectl --kubeconfig ${env.KIND_INTERNAL_KUBECONFIG} apply -f ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
 
                     echo "Waiting for deployments to rollout..."
                     timeout(time: 15, unit: 'MINUTES') {
-                        // Loop iterates over the top-level Groovy variable
                         DEPLOYMENT_NAMES.each { deploymentName ->
                            echo "Waiting for deployment/${deploymentName} rollout status..."
-                           sh "kubectl rollout status deployment/${deploymentName} --watch=true --timeout=10m"
+                           // *** MODIFIED: Pass internal kubeconfig to rollout status ***
+                           sh "kubectl --kubeconfig ${env.KIND_INTERNAL_KUBECONFIG} rollout status deployment/${deploymentName} --watch=true --timeout=10m"
                         }
                     }
                     echo "All specified deployments successfully rolled out."
@@ -121,8 +128,10 @@ pipeline {
                     sleep(time: 15, unit: 'SECONDS')
                     echo "Checking Consul service health (informational)..."
                      try {
+                        // *** MODIFIED: Pass internal kubeconfig to exec ***
                         sh """
-                           kubectl exec -i deployment/consul-deployment -c consul -- sh -c 'apk add --no-cache curl && curl -s http://localhost:8500/v1/health/state/any' > consul_health.txt
+                           kubectl --kubeconfig ${env.KIND_INTERNAL_KUBECONFIG} exec -i deployment/consul-deployment -c consul -- sh -c 'apk add --no-cache curl &> /dev/null || true'
+                           kubectl --kubeconfig ${env.KIND_INTERNAL_KUBECONFIG} exec -i deployment/consul-deployment -c consul -- curl -s http://localhost:8500/v1/health/state/any > consul_health.txt
                            echo '--- Consul Health ---'
                            cat consul_health.txt
                            echo '---------------------'
@@ -156,16 +165,13 @@ pipeline {
                  echo "Starting post-build cleanup..."
                  echo "Removing rendered manifest file: ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
                  sh "rm -f ${env.KUBERNETES_MANIFEST_RENDERED_FILE} || true"
+                 // *** ADDED: Remove the temporary internal kubeconfig file ***
+                 echo "Removing temporary Kind kubeconfig file: ${env.KIND_INTERNAL_KUBECONFIG}"
+                 sh "rm -f ${env.KIND_INTERNAL_KUBECONFIG} || true"
                  echo "Deleting Kind cluster: ${env.KIND_CLUSTER_NAME}"
                  sh "kind delete cluster --name ${env.KIND_CLUSTER_NAME} || true"
-                 // Optional: Docker image removal (uncomment if needed)
-                 // echo "Attempting to remove locally built Docker images with tag: ${env.IMAGE_TAG}"
-                 // CUSTOM_SERVICES.each { serviceDir -> // Use correct variable name
-                 //     def imageName = "${env.IMAGE_PREFIX}/${serviceDir}:${env.IMAGE_TAG}"
-                 //     sh "docker rmi ${imageName} || true"
-                 // }
                  echo "Cleanup finished."
-             }
+            }
         }
         success {
             echo "Pipeline successful. Application deployed and validated in Kind cluster: ${env.KIND_CLUSTER_NAME}"
