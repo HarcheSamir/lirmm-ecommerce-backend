@@ -1,5 +1,3 @@
-# docker-compose.yml (Complete and Corrected)
-version: '3.8'
 
 services:
   zookeeper:
@@ -157,7 +155,6 @@ services:
         - action: rebuild
           path: ./auth-service/package-lock.json
 
-  # --- book-service removed ---
 
   product-service: # <<< ADDED Product Service Definition
     build: ./product-service

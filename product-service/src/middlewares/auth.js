@@ -22,7 +22,7 @@ const authMiddleware = async (req, res, next) => {
 
         // 2. Validate token with discovered Auth service instance
         // Ensure the auth-service exposes a /auth/validate endpoint
-        const validationUrl = `${authService.url}/auth/validate`;
+        const validationUrl = `${authService.url}/validate`;
         console.log(`Auth Middleware: Validating token via ${validationUrl}`);
 
         const response = await axios.post(validationUrl, { token }, {

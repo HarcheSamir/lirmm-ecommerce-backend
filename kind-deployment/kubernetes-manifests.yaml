@@ -1,0 +1,755 @@
+# kind-deployment/kubernetes-manifests.yaml
+# FINAL VERSION: Includes initContainers, command overrides, /health readiness probes,
+# and parameterization (${IMAGE_PREFIX}, ${IMAGE_TAG}) for Jenkins CI/CD
+
+# --- Zookeeper ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zookeeper-deployment
+  labels:
+    app: zookeeper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+      containers:
+      - name: zookeeper
+        image: confluentinc/cp-zookeeper:7.3.2 # Public image, no change needed for tagging
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 2181
+        env:
+        - name: ZOOKEEPER_CLIENT_PORT
+          value: "2181"
+        - name: ZOOKEEPER_TICK_TIME
+          value: "2000"
+        readinessProbe:
+          tcpSocket:
+            port: 2181
+          initialDelaySeconds: 15
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper-svc
+spec:
+  selector:
+    app: zookeeper
+  ports:
+  - protocol: TCP
+    port: 2181
+    targetPort: 2181
+---
+# --- Kafka ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-deployment
+  labels:
+    app: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+      - name: kafka
+        image: confluentinc/cp-kafka:7.3.2 # Public image
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: internal
+          containerPort: 9092
+        - name: external
+          containerPort: 29092
+        env:
+        - name: KAFKA_BROKER_ID
+          value: "1"
+        - name: KAFKA_ZOOKEEPER_CONNECT
+          value: "zookeeper-svc:2181"
+        - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+          value: "PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+        - name: KAFKA_ADVERTISED_LISTENERS
+          value: "PLAINTEXT://kafka-svc:9092,EXTERNAL://localhost:39092"
+        - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
+          value: "0"
+        - name: KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+          value: "1"
+        - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_JMX_PORT
+          value: "9999"
+        - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+          value: "true"
+        readinessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 25
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-svc
+spec:
+  selector:
+    app: kafka
+  ports:
+  - name: internal
+    protocol: TCP
+    port: 9092
+    targetPort: 9092
+  - name: external
+    protocol: TCP
+    port: 29092
+    targetPort: 29092
+    nodePort: 30902
+  type: NodePort
+---
+# --- Elasticsearch ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticsearch-deployment
+  labels:
+    app: elasticsearch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      containers:
+      - name: elasticsearch
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1 # Public image
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 9200
+        - name: transport
+          containerPort: 9300
+        env:
+        - name: discovery.type
+          value: "single-node"
+        - name: xpack.security.enabled
+          value: "false"
+        - name: ES_JAVA_OPTS
+          value: "-Xms512m -Xmx512m"
+        volumeMounts:
+        - name: es-data
+          mountPath: /usr/share/elasticsearch/data
+        readinessProbe:
+          httpGet:
+            path: /_cluster/health?wait_for_status=yellow&timeout=5s
+            port: 9200
+          initialDelaySeconds: 40
+          periodSeconds: 15
+          timeoutSeconds: 10
+      volumes:
+      - name: es-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-svc
+spec:
+  selector:
+    app: elasticsearch
+  ports:
+  - name: http
+    protocol: TCP
+    port: 9200
+    targetPort: 9200
+    nodePort: 32200
+  - name: transport
+    protocol: TCP
+    port: 9300
+    targetPort: 9300
+  type: NodePort
+---
+# --- Consul ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consul-deployment
+  labels:
+    app: consul
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consul
+  template:
+    metadata:
+      labels:
+        app: consul
+    spec:
+      containers:
+      - name: consul
+        image: hashicorp/consul:1.18 # Public image
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8500
+        - name: dns-tcp
+          containerPort: 8600
+          protocol: TCP
+        - name: dns-udp
+          containerPort: 8600
+          protocol: UDP
+        args:
+          - "agent"
+          - "-dev"
+          - "-client=0.0.0.0"
+          - "-ui"
+          - "-node=consul-kind-node"
+        readinessProbe:
+          exec:
+            command: ["consul", "info"]
+          initialDelaySeconds: 15
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: consul-svc
+spec:
+  selector:
+    app: consul
+  ports:
+  - name: http
+    protocol: TCP
+    port: 8500
+    targetPort: 8500
+    nodePort: 32500
+  - name: dns-tcp
+    protocol: TCP
+    port: 8600
+    targetPort: 8600
+  - name: dns-udp
+    protocol: UDP
+    port: 8600
+    targetPort: 8600
+  type: NodePort
+---
+# --- Auth DB (PostgreSQL) ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-db-deployment
+  labels:
+    app: auth-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-db
+  template:
+    metadata:
+      labels:
+        app: auth-db
+    spec:
+      containers:
+      - name: auth-db
+        image: postgres:15-alpine # Public image
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          value: "postgres"
+        - name: POSTGRES_DB
+          value: "auth_db"
+        volumeMounts:
+        - name: auth-db-data
+          mountPath: /var/lib/postgresql/data
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "postgres", "-d", "auth_db"]
+          initialDelaySeconds: 20
+          periodSeconds: 10
+      volumes:
+      - name: auth-db-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-db-svc
+spec:
+  selector:
+    app: auth-db
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432
+    nodePort: 30434
+  type: NodePort
+---
+# --- Product DB (PostgreSQL) ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-db-deployment
+  labels:
+    app: product-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-db
+  template:
+    metadata:
+      labels:
+        app: product-db
+    spec:
+      containers:
+      - name: product-db
+        image: postgres:15-alpine # Public image
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          value: "postgres"
+        - name: POSTGRES_DB
+          value: "product_db"
+        volumeMounts:
+        - name: product-db-data
+          mountPath: /var/lib/postgresql/data
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "postgres", "-d", "product_db"]
+          initialDelaySeconds: 20
+          periodSeconds: 10
+      volumes:
+      - name: product-db-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-db-svc
+spec:
+  selector:
+    app: product-db
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432
+    nodePort: 30435
+  type: NodePort
+---
+
+# --- API Gateway ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway-deployment
+  labels:
+    app: api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: api-gateway
+        # *** MODIFIED FOR JENKINS ***
+        image: ${IMAGE_PREFIX}/api-gateway:${IMAGE_TAG}
+        imagePullPolicy: IfNotPresent
+        # ****************************
+        ports:
+        - containerPort: 3000
+        env:
+        - name: PORT
+          value: "3000"
+        - name: CONSUL_AGENT_HOST
+          value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "api-gateway"
+        - name: NODE_ENV
+          value: "development"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        readinessProbe:
+          httpGet:
+            path: /health # Corrected Path
+            port: 3000
+          initialDelaySeconds: 25
+          periodSeconds: 10
+          timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-svc
+spec:
+  selector:
+    app: api-gateway
+  ports:
+  - protocol: TCP
+    port: 3000
+    targetPort: 3000
+    nodePort: 30000
+  type: NodePort
+---
+# --- Auth Service ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service-deployment
+  labels:
+    app: auth-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      initContainers:
+      - name: auth-db-migrate
+        # *** MODIFIED FOR JENKINS ***
+        image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
+        imagePullPolicy: IfNotPresent
+        # ****************************
+        command: ["sh", "-c"]
+        args:
+          - |
+            echo "[Init Container auth-service] Waiting for auth-db-svc..."
+            until nc -zv auth-db-svc 5432; do echo "Waiting for DB..."; sleep 2; done
+            echo "[Init Container auth-service] auth-db-svc is up."
+            echo "[Init Container auth-service] Pushing schema..."
+            npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss
+            echo "[Init Container auth-service] Seeding DB..."
+            npx prisma db seed --schema=./prisma/schema.prisma
+            echo "[Init Container auth-service] DB setup complete."
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
+      containers:
+      - name: auth-service
+        # *** MODIFIED FOR JENKINS ***
+        image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
+        imagePullPolicy: IfNotPresent
+        # ****************************
+        ports:
+        - containerPort: 3001
+        command: ["node", "src/index.js"] # Override: Run server directly
+        env:
+        - name: PORT
+          value: "3001"
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
+        - name: JWT_SECRET
+          value: "your-secret-key-for-docker-dev"
+        - name: CONSUL_AGENT_HOST
+          value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "auth-service"
+        - name: NODE_ENV
+          value: "development"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        readinessProbe:
+          httpGet:
+            path: /health # Corrected Path
+            port: 3001
+          initialDelaySeconds: 25
+          periodSeconds: 10
+          timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service-svc
+spec:
+  selector:
+    app: auth-service
+  ports:
+  - protocol: TCP
+    port: 3001
+    targetPort: 3001
+    nodePort: 30001
+  type: NodePort
+---
+# --- Product Service ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service-deployment
+  labels:
+    app: product-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-service
+  template:
+    metadata:
+      labels:
+        app: product-service
+    spec:
+      initContainers:
+      - name: product-db-migrate
+        # *** MODIFIED FOR JENKINS ***
+        image: ${IMAGE_PREFIX}/product-service:${IMAGE_TAG}
+        imagePullPolicy: IfNotPresent
+        # ****************************
+        command: ["sh", "-c"]
+        args:
+          - |
+            echo "[Init Container product-service] Waiting for product-db-svc..."
+            until nc -zv product-db-svc 5432; do echo "Waiting for DB..."; sleep 2; done
+            echo "[Init Container product-service] product-db-svc is up."
+            echo "[Init Container product-service] Pushing schema..."
+            npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss
+            echo "[Init Container product-service] Seeding DB..."
+            npx prisma db seed --schema=./prisma/schema.prisma || echo "[Init Container product-service] WARNING: Seed command failed but continuing..."
+            echo "[Init Container product-service] DB setup attempt complete."
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
+      containers:
+      - name: product-service
+        # *** MODIFIED FOR JENKINS ***
+        image: ${IMAGE_PREFIX}/product-service:${IMAGE_TAG}
+        imagePullPolicy: IfNotPresent
+        # ****************************
+        ports:
+        - containerPort: 3003
+        command: ["node", "src/index.js"] # Override: Run server directly
+        env:
+        - name: PORT
+          value: "3003"
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
+        - name: CONSUL_AGENT_HOST
+          value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "product-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"
+        - name: NODE_ENV
+          value: "development"
+        - name: IMAGE_SERVICE_BASE_URL
+          value: "http://image-service-svc:3004"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        readinessProbe:
+          httpGet:
+            path: /health # Corrected Path
+            port: 3003
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-service-svc
+spec:
+  selector:
+    app: product-service
+  ports:
+  - protocol: TCP
+    port: 3003
+    targetPort: 3003
+    nodePort: 30003
+  type: NodePort
+---
+# --- Image Service ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: image-service-deployment
+  labels:
+    app: image-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: image-service
+  template:
+    metadata:
+      labels:
+        app: image-service
+    spec:
+      containers:
+      - name: image-service
+        # *** MODIFIED FOR JENKINS ***
+        image: ${IMAGE_PREFIX}/image-service:${IMAGE_TAG}
+        imagePullPolicy: IfNotPresent
+        # ****************************
+        ports:
+        - containerPort: 3004
+        volumeMounts:
+        - name: image-uploads
+          mountPath: /app/uploads
+        env:
+        - name: PORT
+          value: "3004"
+        - name: CONSUL_AGENT_HOST
+          value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "image-service"
+        - name: NODE_ENV
+          value: "development"
+        - name: UPLOAD_DIR
+          value: "/app/uploads"
+        - name: IMAGE_BASE_URL
+          value: "http://localhost:13004"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        readinessProbe:
+          httpGet:
+            path: /health # Corrected Path
+            port: 3004
+          initialDelaySeconds: 25
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: image-uploads
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: image-service-svc
+spec:
+  selector:
+    app: image-service
+  ports:
+  - protocol: TCP
+    port: 3004
+    targetPort: 3004
+    nodePort: 30004
+  type: NodePort
+---
+# --- Search Service ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search-service-deployment
+  labels:
+    app: search-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: search-service
+  template:
+    metadata:
+      labels:
+        app: search-service
+    spec:
+      containers:
+      - name: search-service
+        # *** MODIFIED FOR JENKINS ***
+        image: ${IMAGE_PREFIX}/search-service:${IMAGE_TAG}
+        imagePullPolicy: IfNotPresent
+        # ****************************
+        ports:
+        - containerPort: 3005
+        env:
+        - name: PORT
+          value: "3005"
+        - name: CONSUL_AGENT_HOST
+          value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "search-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"
+        - name: ELASTICSEARCH_NODE
+          value: "http://elasticsearch-svc:9200"
+        - name: NODE_ENV
+          value: "development"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        readinessProbe:
+          httpGet:
+            path: /health # Corrected Path
+            port: 3005
+          initialDelaySeconds: 40
+          periodSeconds: 15
+          timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: search-service-svc
+spec:
+  selector:
+    app: search-service
+  ports:
+  - protocol: TCP
+    port: 3005
+    targetPort: 3005
+    nodePort: 30005
+  type: NodePort

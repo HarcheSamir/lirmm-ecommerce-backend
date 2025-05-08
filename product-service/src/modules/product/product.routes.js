@@ -13,7 +13,7 @@ const {
 } = require('./product.controller');
 const variantRoutes = require('../variant/variant.routes'); // Import variant routes
 
-// const authMiddleware = require('../../middlewares/auth');
+const authMiddleware = require('../../middlewares/auth');
 
 const router = express.Router();
 

@@ -1,0 +1,52 @@
+# kind-deployment/kind-cluster-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
+  extraPortMappings:
+  # Kafka (External Listener)
+  - containerPort: 30902 # CORRECTED: This now matches the valid NodePort of the kafka-svc
+    hostPort: 39092      # Host port you access
+    protocol: TCP
+  # Elasticsearch API
+  - containerPort: 32200 # NodePort for Elasticsearch Service
+    hostPort: 19200      # Host port
+    protocol: TCP
+  # Consul UI/API
+  - containerPort: 32500 # NodePort for Consul Service
+    hostPort: 18500      # Host port
+    protocol: TCP
+  # API Gateway
+  - containerPort: 30000 # NodePort for api-gateway-svc
+    hostPort: 13000      # Host port
+    protocol: TCP
+  # Auth Service
+  - containerPort: 30001 # NodePort for auth-service-svc
+    hostPort: 13001      # Host port
+    protocol: TCP
+  # Product Service
+  - containerPort: 30003 # NodePort for product-service-svc
+    hostPort: 13003      # Host port
+    protocol: TCP
+  # Image Service
+  - containerPort: 30004 # NodePort for image-service-svc
+    hostPort: 13004      # Host port
+    protocol: TCP
+  # Search Service
+  - containerPort: 30005 # NodePort for search-service-svc
+    hostPort: 13005      # Host port
+    protocol: TCP
+  # Auth DB (PostgreSQL)
+  - containerPort: 30434 # NodePort for auth-db-svc
+    hostPort: 15434      # Host port
+    protocol: TCP
+  # Product DB (PostgreSQL)
+  - containerPort: 30435 # NodePort for product-db-svc
+    hostPort: 15435      # Host port
+    protocol: TCP
