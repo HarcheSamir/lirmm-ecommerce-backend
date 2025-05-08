@@ -1,4 +1,4 @@
-// Jenkinsfile (Corrected - Fix kubectl connectivity from Jenkins container to Kind)
+// Jenkinsfile (Corrected AGAIN - Revert to default kubeconfig)
 
 // Define lists as top-level Groovy variables BEFORE the pipeline block
 def CUSTOM_SERVICES = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service']
@@ -36,8 +36,7 @@ pipeline {
         KIND_CONFIG_FILE = './kind-deployment/kind-cluster-config.yaml'
         KUBERNETES_MANIFEST_TEMPLATE_FILE = './kind-deployment/kubernetes-manifests.yaml'
         KUBERNETES_MANIFEST_RENDERED_FILE = "./kind-deployment/kubernetes-manifests-rendered-${env.BUILD_ID}.yaml"
-        // Path for the temporary internal kubeconfig
-        KIND_INTERNAL_KUBECONFIG = "${WORKSPACE}/kind-kubeconfig-${env.BUILD_ID}.yaml"
+        // REMOVED KIND_INTERNAL_KUBECONFIG - We will use the default config setup by 'kind create'
     }
 
     stages {
@@ -71,6 +70,7 @@ pipeline {
                     sh "kind delete cluster --name ${env.KIND_CLUSTER_NAME} || true"
 
                     echo "Creating Kind cluster: ${env.KIND_CLUSTER_NAME} using ${env.KIND_CONFIG_FILE}"
+                    // 'kind create' automatically sets the default kubectl context
                     sh "kind create cluster --name ${env.KIND_CLUSTER_NAME} --config ${env.KIND_CONFIG_FILE}"
 
                     echo "Pulling required public images to host cache..."
@@ -90,10 +90,7 @@ pipeline {
                     }
                     echo "Finished loading images into Kind."
 
-                    // *** ADDED: Get internal kubeconfig AFTER cluster creation ***
-                    echo "Getting internal kubeconfig for Kind cluster ${env.KIND_CLUSTER_NAME}..."
-                    sh "kind get kubeconfig --name ${env.KIND_CLUSTER_NAME} --internal > ${env.KIND_INTERNAL_KUBECONFIG}"
-                    echo "Internal kubeconfig saved to ${env.KIND_INTERNAL_KUBECONFIG}"
+                    // REMOVED: Getting internal kubeconfig is no longer needed
                 }
             }
         }
@@ -101,26 +98,25 @@ pipeline {
         stage('Deploy Application to Kind') {
              steps {
                 script {
-                    echo "Using Internal Kubeconfig: ${env.KIND_INTERNAL_KUBECONFIG}"
-
-                    // *** ADDED: Verify kubectl can connect using the internal config ***
-                    echo "Verifying kubectl connection..."
-                    sh "kubectl --kubeconfig ${env.KIND_INTERNAL_KUBECONFIG} cluster-info"
-                    sh "kubectl --kubeconfig ${env.KIND_INTERNAL_KUBECONFIG} get nodes"
+                    // NOTE: We are now relying on 'kind create' having set the default kubectl context
+                    // A check is still good
+                    echo "Verifying kubectl can connect to the current context (should be kind-${env.KIND_CLUSTER_NAME})..."
+                    sh "kubectl cluster-info"
+                    sh "kubectl get nodes"
 
                     echo "Rendering Kubernetes manifest with image details..."
                     sh "export IMAGE_PREFIX='${env.IMAGE_PREFIX}' && export IMAGE_TAG='${env.IMAGE_TAG}' && envsubst < ${env.KUBERNETES_MANIFEST_TEMPLATE_FILE} > ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
 
                     echo "Applying rendered Kubernetes manifests: ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
-                    // *** MODIFIED: Pass internal kubeconfig to apply ***
-                    sh "kubectl --kubeconfig ${env.KIND_INTERNAL_KUBECONFIG} apply -f ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
+                    // *** Use default kubectl context, remove --kubeconfig flag ***
+                    sh "kubectl apply -f ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
 
                     echo "Waiting for deployments to rollout..."
                     timeout(time: 15, unit: 'MINUTES') {
                         DEPLOYMENT_NAMES.each { deploymentName ->
                            echo "Waiting for deployment/${deploymentName} rollout status..."
-                           // *** MODIFIED: Pass internal kubeconfig to rollout status ***
-                           sh "kubectl --kubeconfig ${env.KIND_INTERNAL_KUBECONFIG} rollout status deployment/${deploymentName} --watch=true --timeout=10m"
+                           // *** Use default kubectl context, remove --kubeconfig flag ***
+                           sh "kubectl rollout status deployment/${deploymentName} --watch=true --timeout=10m"
                         }
                     }
                     echo "All specified deployments successfully rolled out."
@@ -128,10 +124,11 @@ pipeline {
                     sleep(time: 15, unit: 'SECONDS')
                     echo "Checking Consul service health (informational)..."
                      try {
-                        // *** MODIFIED: Pass internal kubeconfig to exec ***
+                        // *** Use default kubectl context, remove --kubeconfig flag ***
+                        // Ensure apk add doesn't cause issues if curl is already present
                         sh """
-                           kubectl --kubeconfig ${env.KIND_INTERNAL_KUBECONFIG} exec -i deployment/consul-deployment -c consul -- sh -c 'apk add --no-cache curl &> /dev/null || true'
-                           kubectl --kubeconfig ${env.KIND_INTERNAL_KUBECONFIG} exec -i deployment/consul-deployment -c consul -- curl -s http://localhost:8500/v1/health/state/any > consul_health.txt
+                           kubectl exec -i deployment/consul-deployment -c consul -- sh -c 'apk add --no-cache curl &> /dev/null || true'
+                           kubectl exec -i deployment/consul-deployment -c consul -- curl -s http://localhost:8500/v1/health/state/any > consul_health.txt
                            echo '--- Consul Health ---'
                            cat consul_health.txt
                            echo '---------------------'
@@ -165,9 +162,7 @@ pipeline {
                  echo "Starting post-build cleanup..."
                  echo "Removing rendered manifest file: ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
                  sh "rm -f ${env.KUBERNETES_MANIFEST_RENDERED_FILE} || true"
-                 // *** ADDED: Remove the temporary internal kubeconfig file ***
-                 echo "Removing temporary Kind kubeconfig file: ${env.KIND_INTERNAL_KUBECONFIG}"
-                 sh "rm -f ${env.KIND_INTERNAL_KUBECONFIG} || true"
+                 // REMOVED cleanup for KIND_INTERNAL_KUBECONFIG file
                  echo "Deleting Kind cluster: ${env.KIND_CLUSTER_NAME}"
                  sh "kind delete cluster --name ${env.KIND_CLUSTER_NAME} || true"
                  echo "Cleanup finished."
