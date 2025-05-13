@@ -1,39 +1,36 @@
-// Jenkinsfile (Fixed Kind Cluster Name, Cluster Remains After Build)
+// Jenkinsfile
 
-// Define lists as top-level Groovy variables BEFORE the pipeline block
-def CUSTOM_SERVICES = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service']
+def CUSTOM_SERVICES = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service', 'cart-service'] // <-- ADDED cart-service
 def PUBLIC_IMAGES = [
     'postgres:15-alpine',
     'confluentinc/cp-zookeeper:7.3.2',
     'confluentinc/cp-kafka:7.3.2',
     'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
-    'hashicorp/consul:1.18'
+    'hashicorp/consul:1.18',
+    'redis:7.2-alpine' // <-- ADDED redis
 ]
 def DEPLOYMENT_NAMES = [
     'zookeeper-deployment', 'kafka-deployment', 'elasticsearch-deployment',
-    'consul-deployment', 'auth-db-deployment', 'product-db-deployment',
+    'consul-deployment', 'redis-deployment', // <-- ADDED redis-deployment
+    'auth-db-deployment', 'product-db-deployment',
     'api-gateway-deployment', 'auth-service-deployment', 'product-service-deployment',
-    'image-service-deployment', 'search-service-deployment'
+    'image-service-deployment', 'search-service-deployment', 'cart-service-deployment' // <-- ADDED cart-service-deployment
 ]
 
 
-// Now start the pipeline block
 pipeline {
-    // Run on WSL agent
-    agent { label 'wsl' }
+    agent { label 'wsl' } // Ensure your Jenkins agent has this label
 
     options {
         timestamps()
         disableConcurrentBuilds()
-        timeout(time: 45, unit: 'MINUTES')
+        timeout(time: 50, unit: 'MINUTES') // Increased timeout slightly
     }
 
     environment {
-        // --- Configuration ---
-        IMAGE_PREFIX = 'library'
+        IMAGE_PREFIX = 'library' // Default for local Docker, Docker Hub user/org for remote
         IMAGE_TAG = "${env.BUILD_ID}"
-        // *** CHANGED: Use a fixed, predictable name for the Kind cluster ***
-        KIND_CLUSTER_NAME = "lirmm-ecommerce-dev-jenkins" // Or any fixed name you prefer
+        KIND_CLUSTER_NAME = "lirmm-ecommerce-dev-jenkins"
         KIND_CONFIG_FILE = './kind-deployment/kind-cluster-config.yaml'
         KUBERNETES_MANIFEST_TEMPLATE_FILE = './kind-deployment/kubernetes-manifests.yaml'
         KUBERNETES_MANIFEST_RENDERED_FILE = "./kind-deployment/kubernetes-manifests-rendered-${env.BUILD_ID}.yaml"
@@ -56,6 +53,8 @@ pipeline {
                     CUSTOM_SERVICES.each { serviceDir ->
                         def imageName = "${env.IMAGE_PREFIX}/${serviceDir}:${env.IMAGE_TAG}"
                         echo "Building Docker image ${imageName} from ./${serviceDir}..."
+                        // Ensure Dockerfile exists
+                        sh "test -f ./${serviceDir}/Dockerfile || (echo 'ERROR: Dockerfile not found in ./${serviceDir}!' && exit 1)"
                         sh "docker build -t ${imageName} ./${serviceDir}"
                         echo "Finished building ${imageName}."
                     }
@@ -66,25 +65,25 @@ pipeline {
         stage('Setup Kind Cluster') {
             steps {
                 script {
-                    // This step now ensures any cluster with the *fixed name* is removed first
                     echo "Checking for and cleaning up existing Kind cluster: ${env.KIND_CLUSTER_NAME}"
                     sh "kind delete cluster --name ${env.KIND_CLUSTER_NAME} || true"
 
                     echo "Creating Kind cluster: ${env.KIND_CLUSTER_NAME} using ${env.KIND_CONFIG_FILE}"
-                    // kind create uses the fixed name now and updates default kubeconfig
                     sh "kind create cluster --name ${env.KIND_CLUSTER_NAME} --config ${env.KIND_CONFIG_FILE}"
 
                     echo "Pulling required public images to host cache..."
                     PUBLIC_IMAGES.each { imageName ->
-                         sh "docker pull ${imageName} || true"
+                         sh "docker pull ${imageName} || true" // Allow failure if already present locally for some reason
                     }
 
                     echo "Loading required images into Kind cluster ${env.KIND_CLUSTER_NAME}..."
+                    // Load custom images built in this pipeline
                     CUSTOM_SERVICES.each { serviceDir ->
                         def imageName = "${env.IMAGE_PREFIX}/${serviceDir}:${env.IMAGE_TAG}"
                         echo "Loading custom image: ${imageName}"
                         sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
                     }
+                    // Load public images (already pulled to host)
                     PUBLIC_IMAGES.each { imageName ->
                         echo "Loading public image: ${imageName}"
                          sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
@@ -96,34 +95,37 @@ pipeline {
 
         stage('Deploy Application to Kind') {
              steps {
-                 // Uses default context modified by 'kind create'
                 script {
-                    echo "Ensuring kubectl context is set..."
+                    echo "Ensuring kubectl context is set for Kind cluster..."
                     sh "kubectl config use-context kind-${env.KIND_CLUSTER_NAME}"
                     echo "Verifying kubectl connection to cluster..."
                     sh "kubectl cluster-info"
                     sh "kubectl get nodes"
 
                     echo "Rendering Kubernetes manifest with image details..."
+                    // Ensure IMAGE_PREFIX and IMAGE_TAG are exported for envsubst
                     sh "export IMAGE_PREFIX='${env.IMAGE_PREFIX}' && export IMAGE_TAG='${env.IMAGE_TAG}' && envsubst < ${env.KUBERNETES_MANIFEST_TEMPLATE_FILE} > ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
+                    echo "Rendered manifest saved to ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
+
 
                     echo "Applying rendered Kubernetes manifests: ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
                     sh "kubectl apply -f ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
 
                     echo "Waiting for deployments to rollout..."
-                    timeout(time: 15, unit: 'MINUTES') {
+                    timeout(time: 20, unit: 'MINUTES') { // Increased rollout timeout
                         DEPLOYMENT_NAMES.each { deploymentName ->
                            echo "Waiting for deployment/${deploymentName} rollout status..."
-                           sh "kubectl rollout status deployment/${deploymentName} --watch=true --timeout=10m"
+                           sh "kubectl rollout status deployment/${deploymentName} --watch=true --timeout=15m" // Individual timeout
                         }
                     }
                     echo "All specified deployments successfully rolled out."
 
-                    sleep(time: 15, unit: 'SECONDS')
+                    // Add a small delay for services to fully initialize and register with Consul
+                    sleep(time: 30, unit: 'SECONDS') // Increased delay
                     echo "Checking Consul service health (informational)..."
                      try {
                         sh """
-                           kubectl exec -i deployment/consul-deployment -c consul -- curl -s http://localhost:8500/v1/health/state/any > consul_health.txt
+                           kubectl exec -i deployment/consul-deployment -c consul -- curl -s <http://localhost:8500/v1/health/state/any> > consul_health.txt
                            echo '--- Consul Health ---'
                            cat consul_health.txt
                            echo '---------------------'
@@ -141,15 +143,16 @@ pipeline {
             }
         }
 
-        stage('Integration/E2E Tests') {
+        stage('Integration/E2E Tests (Placeholder)') {
              steps {
                 echo "Running tests against deployed services on Kind..."
-                echo "API Gateway access via NodePort: http://localhost:13000" // Still relies on the port mapping
-                sleep(time: 10, unit: 'SECONDS') // Placeholder
+                // Example: Check API Gateway access based on Kind NodePort
+                echo "API Gateway NodePort: <http://localhost:13000>" // Port from kind-cluster-config.yaml hostPort
+                sleep(time: 10, unit: 'SECONDS') // Placeholder for actual test execution
+                // Example: curl <http://localhost:13000/health>
              }
         }
-
-    } // End stages
+    }
 
     post {
         always {
@@ -158,20 +161,20 @@ pipeline {
                  echo "Removing rendered manifest file: ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
                  sh "rm -f ${env.KUBERNETES_MANIFEST_RENDERED_FILE} || true"
 
-                 // --- CHANGED: DO NOT DELETE CLUSTER HERE ---
-                 echo "Kind cluster ${env.KIND_CLUSTER_NAME} left running."
-                 // echo "Deleting Kind cluster: ${env.KIND_CLUSTER_NAME}" // Commented out
-                 // sh "kind delete cluster --name ${env.KIND_CLUSTER_NAME} || true" // Commented out
+                 // Cluster is intentionally left running as per original Jenkinsfile modification
+                 echo "Kind cluster ${env.KIND_CLUSTER_NAME} left running for inspection."
 
                  echo "Cleanup finished (Manifests removed, Cluster PERSISTS)."
              }
         }
         success {
             echo "Pipeline successful. Application deployed to Kind cluster: ${env.KIND_CLUSTER_NAME}"
+            echo "Access services via NodePorts defined in kind-cluster-config.yaml (e.g., API Gateway at <http://localhost:13000>)"
         }
         failure {
             echo "Pipeline failed."
+            // Consider adding steps to collect logs from pods if pipeline fails
+            // sh "kubectl logs deployment/api-gateway-deployment -c api-gateway --tail=100"
         }
-    } // End post
-
-} // End pipeline
+    }
+}

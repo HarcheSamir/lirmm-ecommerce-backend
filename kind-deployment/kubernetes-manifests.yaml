@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: zookeeper
-        image: confluentinc/cp-zookeeper:7.3.2 # Public image, no change needed for tagging
+        image: confluentinc/cp-zookeeper:7.3.2 # Public image
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 2181
@@ -82,7 +82,7 @@ spec:
         - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
           value: "PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
         - name: KAFKA_ADVERTISED_LISTENERS
-          value: "PLAINTEXT://kafka-svc:9092,EXTERNAL://localhost:39092"
+          value: "PLAINTEXT://kafka-svc:9092,EXTERNAL://localhost:30902" # Uses NodePort for EXTERNAL
         - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
           value: "1"
         - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
@@ -117,11 +117,11 @@ spec:
     protocol: TCP
     port: 9092
     targetPort: 9092
-  - name: external
+  - name: external # This is for NodePort access
     protocol: TCP
-    port: 29092
-    targetPort: 29092
-    nodePort: 30902
+    port: 29092 # Service port matching one of Kafka's internal listeners
+    targetPort: 29092 # Kafka's container port for external connections
+    nodePort: 30902 # External NodePort for host access
   type: NodePort
 ---
 # --- Elasticsearch ---
@@ -169,7 +169,7 @@ spec:
           timeoutSeconds: 10
       volumes:
       - name: es-data
-        emptyDir: {}
+        emptyDir: {} # Use persistent storage in production
 ---
 apiVersion: v1
 kind: Service
@@ -225,10 +225,10 @@ spec:
           - "-dev"
           - "-client=0.0.0.0"
           - "-ui"
-          - "-node=consul-kind-node"
+          - "-node=consul-kind-node" # Node name for Consul agent
         readinessProbe:
           exec:
-            command: ["consul", "info"]
+            command: ["consul", "info"] # Simple check for agent status
           initialDelaySeconds: 15
           periodSeconds: 10
 ---
@@ -253,6 +253,56 @@ spec:
     protocol: UDP
     port: 8600
     targetPort: 8600
+  type: NodePort
+---
+# --- Redis ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-deployment
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7.2-alpine # Public image
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 6379
+        command: ["redis-server", "--appendonly", "yes"]
+        readinessProbe:
+          tcpSocket:
+            port: 6379
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        volumeMounts: # Optional for persistence in Kind, good practice
+        - name: redis-data
+          mountPath: /data
+      volumes:
+      - name: redis-data
+        emptyDir: {} # For Kind. Use PersistentVolumeClaim in production.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-svc
+spec:
+  selector:
+    app: redis
+  ports:
+  - protocol: TCP
+    port: 6379       # Internal port for services to connect
+    targetPort: 6379
+    nodePort: 32379 # External NodePort for direct access (e.g. redis-cli from host)
   type: NodePort
 ---
 # --- Auth DB (PostgreSQL) ---
@@ -308,7 +358,7 @@ spec:
   - protocol: TCP
     port: 5432
     targetPort: 5432
-    nodePort: 30434
+    nodePort: 30434 # Corresponds to setup-kind.sh and kind-cluster-config.yaml
   type: NodePort
 ---
 # --- Product DB (PostgreSQL) ---
@@ -364,10 +414,9 @@ spec:
   - protocol: TCP
     port: 5432
     targetPort: 5432
-    nodePort: 30435
+    nodePort: 30435 # Corresponds to setup-kind.sh and kind-cluster-config.yaml
   type: NodePort
 ---
-
 # --- API Gateway ---
 apiVersion: apps/v1
 kind: Deployment
@@ -387,34 +436,32 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        # *** MODIFIED FOR JENKINS ***
         image: ${IMAGE_PREFIX}/api-gateway:${IMAGE_TAG}
         imagePullPolicy: IfNotPresent
-        # ****************************
         ports:
         - containerPort: 3000
         env:
         - name: PORT
           value: "3000"
         - name: CONSUL_AGENT_HOST
-          value: "consul-svc"
+          value: "consul-svc" # Internal service name for Consul
         - name: SERVICE_NAME
           value: "api-gateway"
         - name: NODE_ENV
           value: "development"
-        - name: POD_IP
+        - name: POD_IP # For Consul registration if needed (address)
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
-        - name: POD_HOSTNAME
+        - name: POD_HOSTNAME # For Consul registration (unique ID component)
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
         readinessProbe:
           httpGet:
-            path: /health # Corrected Path
+            path: /health
             port: 3000
-          initialDelaySeconds: 25
+          initialDelaySeconds: 25 # Increased for potential cold start or dependencies
           periodSeconds: 10
           timeoutSeconds: 5
 ---
@@ -427,9 +474,9 @@ spec:
     app: api-gateway
   ports:
   - protocol: TCP
-    port: 3000
-    targetPort: 3000
-    nodePort: 30000
+    port: 3000 # Internal K8s service port
+    targetPort: 3000 # Container port of api-gateway
+    nodePort: 30000 # Exposed on Kind node (matches kind-config and setup script)
   type: NodePort
 ---
 # --- Auth Service ---
@@ -451,15 +498,13 @@ spec:
     spec:
       initContainers:
       - name: auth-db-migrate
-        # *** MODIFIED FOR JENKINS ***
         image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
         imagePullPolicy: IfNotPresent
-        # ****************************
         command: ["sh", "-c"]
         args:
           - |
             echo "[Init Container auth-service] Waiting for auth-db-svc..."
-            until nc -zv auth-db-svc 5432; do echo "Waiting for DB..."; sleep 2; done
+            until nc -zv auth-db-svc 5432; do echo "Waiting for auth-db-svc..."; sleep 2; done
             echo "[Init Container auth-service] auth-db-svc is up."
             echo "[Init Container auth-service] Pushing schema..."
             npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss
@@ -471,20 +516,18 @@ spec:
           value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
       containers:
       - name: auth-service
-        # *** MODIFIED FOR JENKINS ***
         image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
         imagePullPolicy: IfNotPresent
-        # ****************************
         ports:
         - containerPort: 3001
-        command: ["node", "src/index.js"] # Override: Run server directly
+        command: ["node", "src/index.js"]
         env:
         - name: PORT
           value: "3001"
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
         - name: JWT_SECRET
-          value: "your-secret-key-for-docker-dev"
+          value: "your-secret-key-for-docker-dev" # Use K8s secrets for production
         - name: CONSUL_AGENT_HOST
           value: "consul-svc"
         - name: SERVICE_NAME
@@ -501,7 +544,7 @@ spec:
               fieldPath: metadata.name
         readinessProbe:
           httpGet:
-            path: /health # Corrected Path
+            path: /health
             port: 3001
           initialDelaySeconds: 25
           periodSeconds: 10
@@ -540,15 +583,13 @@ spec:
     spec:
       initContainers:
       - name: product-db-migrate
-        # *** MODIFIED FOR JENKINS ***
         image: ${IMAGE_PREFIX}/product-service:${IMAGE_TAG}
         imagePullPolicy: IfNotPresent
-        # ****************************
         command: ["sh", "-c"]
         args:
           - |
             echo "[Init Container product-service] Waiting for product-db-svc..."
-            until nc -zv product-db-svc 5432; do echo "Waiting for DB..."; sleep 2; done
+            until nc -zv product-db-svc 5432; do echo "Waiting for product-db-svc..."; sleep 2; done
             echo "[Init Container product-service] product-db-svc is up."
             echo "[Init Container product-service] Pushing schema..."
             npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss
@@ -560,13 +601,11 @@ spec:
           value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
       containers:
       - name: product-service
-        # *** MODIFIED FOR JENKINS ***
         image: ${IMAGE_PREFIX}/product-service:${IMAGE_TAG}
         imagePullPolicy: IfNotPresent
-        # ****************************
         ports:
         - containerPort: 3003
-        command: ["node", "src/index.js"] # Override: Run server directly
+        command: ["node", "src/index.js"]
         env:
         - name: PORT
           value: "3003"
@@ -576,12 +615,12 @@ spec:
           value: "consul-svc"
         - name: SERVICE_NAME
           value: "product-service"
-        - name: KAFKA_BROKERS
+        - name: KAFKA_BROKERS # Connect to internal Kafka service
           value: "kafka-svc:9092"
         - name: NODE_ENV
           value: "development"
-        - name: IMAGE_SERVICE_BASE_URL
-          value: "http://image-service-svc:3004"
+        - name: IMAGE_SERVICE_BASE_URL # For generating image URLs within product data
+          value: "<http://image-service-svc:3004>" # Use internal K8s service name for service-to-service
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -592,7 +631,7 @@ spec:
               fieldPath: metadata.name
         readinessProbe:
           httpGet:
-            path: /health # Corrected Path
+            path: /health
             port: 3003
           initialDelaySeconds: 30
           periodSeconds: 10
@@ -631,14 +670,12 @@ spec:
     spec:
       containers:
       - name: image-service
-        # *** MODIFIED FOR JENKINS ***
         image: ${IMAGE_PREFIX}/image-service:${IMAGE_TAG}
         imagePullPolicy: IfNotPresent
-        # ****************************
         ports:
         - containerPort: 3004
         volumeMounts:
-        - name: image-uploads
+        - name: image-uploads # Volume for image persistence
           mountPath: /app/uploads
         env:
         - name: PORT
@@ -649,10 +686,10 @@ spec:
           value: "image-service"
         - name: NODE_ENV
           value: "development"
-        - name: UPLOAD_DIR
+        - name: UPLOAD_DIR # Internal path in container
           value: "/app/uploads"
-        - name: IMAGE_BASE_URL
-          value: "http://localhost:13004"
+        - name: IMAGE_BASE_URL # Public URL structure (exposed via NodePort 13004)
+          value: "<http://localhost:13004>" # Match the NodePort defined in kind-cluster-config.yaml
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -663,14 +700,14 @@ spec:
               fieldPath: metadata.name
         readinessProbe:
           httpGet:
-            path: /health # Corrected Path
+            path: /health
             port: 3004
           initialDelaySeconds: 25
           periodSeconds: 10
           timeoutSeconds: 5
-      volumes:
+      volumes: # Define the volume used by image-service
       - name: image-uploads
-        emptyDir: {}
+        emptyDir: {} # For Kind. Use PV/PVC in production.
 ---
 apiVersion: v1
 kind: Service
@@ -705,10 +742,8 @@ spec:
     spec:
       containers:
       - name: search-service
-        # *** MODIFIED FOR JENKINS ***
         image: ${IMAGE_PREFIX}/search-service:${IMAGE_TAG}
         imagePullPolicy: IfNotPresent
-        # ****************************
         ports:
         - containerPort: 3005
         env:
@@ -721,7 +756,7 @@ spec:
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
         - name: ELASTICSEARCH_NODE
-          value: "http://elasticsearch-svc:9200"
+          value: "<http://elasticsearch-svc:9200>"
         - name: NODE_ENV
           value: "development"
         - name: POD_IP
@@ -734,9 +769,9 @@ spec:
               fieldPath: metadata.name
         readinessProbe:
           httpGet:
-            path: /health # Corrected Path
+            path: /health
             port: 3005
-          initialDelaySeconds: 40
+          initialDelaySeconds: 40 # Increased due to ES/Kafka dependency
           periodSeconds: 15
           timeoutSeconds: 5
 ---
@@ -752,4 +787,70 @@ spec:
     port: 3005
     targetPort: 3005
     nodePort: 30005
+  type: NodePort
+---
+# --- Cart Service ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cart-service-deployment
+  labels:
+    app: cart-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cart-service
+  template:
+    metadata:
+      labels:
+        app: cart-service
+    spec:
+      containers:
+      - name: cart-service
+        image: ${IMAGE_PREFIX}/cart-service:${IMAGE_TAG} # Parameterized image
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3006 # Internal port for the cart service
+        env:
+        - name: PORT
+          value: "3006"
+        - name: CONSUL_AGENT_HOST
+          value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "cart-service"
+        - name: NODE_ENV
+          value: "development"
+        - name: REDIS_HOST # Connect to internal Redis service
+          value: "redis-svc"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3006
+          initialDelaySeconds: 30 # Allow time for Redis connection and Consul registration
+          periodSeconds: 10
+          timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cart-service-svc
+spec:
+  selector:
+    app: cart-service
+  ports:
+  - protocol: TCP
+    port: 3006 # Internal K8s service port
+    targetPort: 3006 # Container port of cart-service
+    nodePort: 30006 # Exposed on Kind node
   type: NodePort

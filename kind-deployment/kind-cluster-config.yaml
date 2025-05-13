@@ -1,4 +1,3 @@
-# kind-deployment/kind-cluster-config.yaml
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -10,43 +9,51 @@ nodes:
       kubeletExtraArgs:
         node-labels: "ingress-ready=true"
   extraPortMappings:
-  # Kafka (External Listener)
-  - containerPort: 30902 # CORRECTED: This now matches the valid NodePort of the kafka-svc
-    hostPort: 39092      # Host port you access
+  # Kafka (External Listener, NodePort 30902 from kafka-svc)
+  - containerPort: 30902
+    hostPort: 39092
     protocol: TCP
-  # Elasticsearch API
-  - containerPort: 32200 # NodePort for Elasticsearch Service
-    hostPort: 19200      # Host port
+  # Elasticsearch API (NodePort 32200 from elasticsearch-svc)
+  - containerPort: 32200
+    hostPort: 19200
     protocol: TCP
-  # Consul UI/API
-  - containerPort: 32500 # NodePort for Consul Service
-    hostPort: 18500      # Host port
+  # Consul UI/API (NodePort 32500 from consul-svc)
+  - containerPort: 32500
+    hostPort: 18500
     protocol: TCP
-  # API Gateway
-  - containerPort: 30000 # NodePort for api-gateway-svc
-    hostPort: 13000      # Host port
+  # Redis (NodePort 32379 from redis-svc) # <-- ADDED Redis port mapping
+  - containerPort: 32379
+    hostPort: 19379 # Different host port to avoid clash if local Redis runs on 6379
     protocol: TCP
-  # Auth Service
-  - containerPort: 30001 # NodePort for auth-service-svc
-    hostPort: 13001      # Host port
+  # API Gateway (NodePort 30000 from api-gateway-svc)
+  - containerPort: 30000
+    hostPort: 13000
     protocol: TCP
-  # Product Service
-  - containerPort: 30003 # NodePort for product-service-svc
-    hostPort: 13003      # Host port
+  # Auth Service (NodePort 30001 from auth-service-svc)
+  - containerPort: 30001
+    hostPort: 13001
     protocol: TCP
-  # Image Service
-  - containerPort: 30004 # NodePort for image-service-svc
-    hostPort: 13004      # Host port
+  # Product Service (NodePort 30003 from product-service-svc)
+  - containerPort: 30003
+    hostPort: 13003
     protocol: TCP
-  # Search Service
-  - containerPort: 30005 # NodePort for search-service-svc
-    hostPort: 13005      # Host port
+  # Image Service (NodePort 30004 from image-service-svc)
+  - containerPort: 30004
+    hostPort: 13004
     protocol: TCP
-  # Auth DB (PostgreSQL)
-  - containerPort: 30434 # NodePort for auth-db-svc
-    hostPort: 15434      # Host port
+  # Search Service (NodePort 30005 from search-service-svc)
+  - containerPort: 30005
+    hostPort: 13005
     protocol: TCP
-  # Product DB (PostgreSQL)
-  - containerPort: 30435 # NodePort for product-db-svc
-    hostPort: 15435      # Host port
+  # Cart Service (NodePort 30006 from cart-service-svc) # <-- ADDED Cart Service port mapping
+  - containerPort: 30006
+    hostPort: 13006
+    protocol: TCP
+  # Auth DB (PostgreSQL, NodePort 30434 from auth-db-svc)
+  - containerPort: 30434
+    hostPort: 15434
+    protocol: TCP
+  # Product DB (PostgreSQL, NodePort 30435 from product-db-svc)
+  - containerPort: 30435
+    hostPort: 15435
     protocol: TCP

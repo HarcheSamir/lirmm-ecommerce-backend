@@ -1,7 +1,6 @@
-
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.3.2 # Use a stable version
+    image: confluentinc/cp-zookeeper:7.3.2
     container_name: zookeeper-dev
     networks:
       - microservices-network
@@ -15,7 +14,7 @@ services:
       retries: 5
 
   kafka:
-    image: confluentinc/cp-kafka:7.3.2 # Match Zookeeper version branch
+    image: confluentinc/cp-kafka:7.3.2
     container_name: kafka-dev
     networks:
       - microservices-network
@@ -23,56 +22,57 @@ services:
       zookeeper:
         condition: service_healthy
     ports:
-      # Optional: Expose for external tools if needed, but not required for inter-service comms
-      # "9092:9092"
-      - "29092:29092" # Exposed for host access if absolutely needed (e.g., local dev tool)
+      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper-dev:2181'
-      # Listeners: PLAINTEXT for internal Docker network, EXTERNAL for potential host access
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-dev:9092,EXTERNAL://localhost:29092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1 # Dev setting
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0 # Dev setting
-      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1 # Dev setting
-      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1 # Dev setting
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1 # Dev setting
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1 # Dev setting
-      KAFKA_JMX_PORT: 9999 # Optional JMX
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true" # Allow automatic topic creation for simplicity
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 9999
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
       test: ["CMD-SHELL", "/usr/bin/kafka-topics --bootstrap-server kafka-dev:9092 --list || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5
 
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1 # Use a specific recent version
+  elasticsearch: # <<< MODIFIED SECTION
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
     container_name: elasticsearch-dev
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false # Disable security for simplicity (as requested)
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m # Adjust memory as needed
-    ulimits:
+      - xpack.security.enabled=false # Keep security disabled for dev simplicity
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m # Keep memory settings
+      # Optional: Setting network.host explicitly might help in some Docker envs, but usually not needed with single-node
+      # - network.host=0.0.0.0
+    ulimits: # Keep ulimits unless they specifically cause OS issues
       memlock:
         soft: -1
         hard: -1
     volumes:
-      - es-data-dev:/usr/share/elasticsearch/data
+      - es-data-dev:/usr/share/elasticsearch/data # Correct named volume
     ports:
-      - "9200:9200" # Expose ES API
-      # - "9300:9300" # Transport - usually not needed externally
+      - "9200:9200" # Correct port mapping
     networks:
-      - microservices-network
+      - microservices-network # Correct network
     healthcheck:
-      test: ["CMD-SHELL", "curl -s --fail http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      # Increased tolerance: more time for curl, longer interval, more retries, start_period added
+      test: ["CMD-SHELL", "curl -s --fail http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=10s || exit 1"]
+      interval: 15s    # Check less frequently during startup churn
+      timeout: 12s     # Increased overall timeout for the check command
+      retries: 6       # Allow one more retry
+      start_period: 45s # IMPORTANT: Give ES 45 seconds grace period after starting before first healthcheck failure marks it unhealthy
+                        # This helps significantly during docker compose watch restarts
 
   consul:
     image: hashicorp/consul:1.18
-    container_name: consul-agent # Kept original name
+    container_name: consul-agent
     ports:
       - "8500:8500"
       - "8600:8600/udp"
@@ -83,6 +83,22 @@ services:
       test: ["CMD", "consul", "info"]
       interval: 10s
       timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis-dev
+    ports:
+      - "6379:6379"
+    networks:
+      - microservices-network
+    volumes:
+      - redis-data-dev:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 5
 
   api-gateway:
@@ -96,20 +112,20 @@ services:
     depends_on:
       consul:
         condition: service_healthy
-      # Dependencies on services are less critical now due to discovery
-      # but good for startup order logic
       auth-service:
+        condition: service_started # Use started here as gateway does discovery
+      product-service:
         condition: service_started
-      product-service: # <<< CHANGED from book-service
-        condition: service_started
-      image-service:   # <<< ADDED image-service dependency
+      image-service:
         condition: service_started
       search-service:
+        condition: service_started # Wait for search to *start*, discovery handles availability
+      cart-service:
         condition: service_started
     environment:
       PORT: 3000
-      CONSUL_AGENT_HOST: consul-agent # Kept original name
-      SERVICE_NAME: api-gateway     # <<< THIS LINE WAS ADDED
+      CONSUL_AGENT_HOST: consul-agent
+      SERVICE_NAME: api-gateway
       NODE_ENV: development
     command: npm run dev
     develop:
@@ -119,16 +135,14 @@ services:
           target: /app/src
         - action: rebuild
           path: ./api-gateway/package.json
-        - action: rebuild
-          path: ./api-gateway/package-lock.json
 
   auth-service:
     build: ./auth-service
     container_name: auth-service-dev
-    ports: # Optional external exposure
+    ports:
        - "3001:3001"
     depends_on:
-      auth-db: # Depends on auth-db (original name)
+      auth-db:
         condition: service_healthy
       consul:
         condition: service_healthy
@@ -136,9 +150,9 @@ services:
       - microservices-network
     environment:
       PORT: 3001
-      DATABASE_URL: postgresql://postgres:postgres@auth-db:5432/auth_db?schema=public # Kept original DB name reference
-      JWT_SECRET: your-secret-key-for-docker-dev # Kept original placeholder
-      CONSUL_AGENT_HOST: consul-agent # Kept original name
+      DATABASE_URL: postgresql://postgres:postgres@auth-db:5432/auth_db?schema=public
+      JWT_SECRET: your-secret-key-for-docker-dev
+      CONSUL_AGENT_HOST: consul-agent
       SERVICE_NAME: auth-service
       NODE_ENV: development
     command: npm run dev
@@ -152,17 +166,14 @@ services:
           target: /app/prisma/schema.prisma
         - action: rebuild
           path: ./auth-service/package.json
-        - action: rebuild
-          path: ./auth-service/package-lock.json
 
-
-  product-service: # <<< ADDED Product Service Definition
+  product-service:
     build: ./product-service
     container_name: product-service-dev
     ports:
-      - "3003:3003" # Assigning port 3003
+      - "3003:3003"
     depends_on:
-      product-db: # Depends on its own DB
+      product-db:
         condition: service_healthy
       consul:
         condition: service_healthy
@@ -171,15 +182,14 @@ services:
     networks:
       - microservices-network
     environment:
-      PORT: 3003 # Port for product service
-      DATABASE_URL: postgresql://postgres:postgres@product-db:5432/product_db?schema=public # Connect to product-db service
-      CONSUL_AGENT_HOST: consul-agent # Connect to consul-agent
+      PORT: 3003
+      DATABASE_URL: postgresql://postgres:postgres@product-db:5432/product_db?schema=public
+      CONSUL_AGENT_HOST: consul-agent
       SERVICE_NAME: product-service
-      KAFKA_BROKERS: kafka-dev:9092 # Internal Kafka address
+      KAFKA_BROKERS: kafka-dev:9092
       NODE_ENV: development
-      # IMAGE_SERVICE_BASE_URL: http://image-service-dev:3004 # Optional, uncomment if needed
-    command: npm run dev # Assumes this runs migrations and starts
-    develop: # Copied develop section pattern
+    command: npm run dev
+    develop:
       watch:
         - action: sync
           path: ./product-service/src
@@ -189,60 +199,55 @@ services:
           target: /app/prisma/schema.prisma
         - action: rebuild
           path: ./product-service/package.json
-        - action: rebuild
-          path: ./product-service/package-lock.json
 
-  image-service: # <<< ADDED Image Service Definition
+  image-service:
     build: ./image-service
     container_name: image-service-dev
     ports:
-      - "3004:3004" # Assigning port 3004
+      - "3004:3004"
     depends_on:
       consul:
         condition: service_healthy
     networks:
       - microservices-network
     volumes:
-      - image-uploads-data:/app/uploads # Mount volume for uploads
+      - image-uploads-data:/app/uploads
     environment:
-      PORT: 3004 # Port for image service
-      CONSUL_AGENT_HOST: consul-agent # Connect to consul-agent
+      PORT: 3004
+      CONSUL_AGENT_HOST: consul-agent
       SERVICE_NAME: image-service
       NODE_ENV: development
-      UPLOAD_DIR: /app/uploads # Internal container path for uploads
-      IMAGE_BASE_URL: http://localhost:3004 # External URL clients use (verify this is correct for your setup)
+      UPLOAD_DIR: /app/uploads
+      IMAGE_BASE_URL: http://localhost:3004
     command: npm run dev
-    develop: # Copied develop section pattern
+    develop:
       watch:
         - action: sync
           path: ./image-service/src
           target: /app/src
         - action: rebuild
           path: ./image-service/package.json
-        - action: rebuild
-          path: ./image-service/package-lock.json
 
-  search-service: # Definition mostly unchanged
+  search-service:
     build: ./search-service
     container_name: search-service-dev
     ports:
-      - "3005:3005" # <<< CHANGED Port mapping (was 3003)
+      - "3005:3005"
     depends_on:
       consul:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      elasticsearch:
+      elasticsearch: # <<< Depends on ES being healthy
         condition: service_healthy
     networks:
       - microservices-network
     environment:
-      PORT: 3005 # <<< CHANGED Port variable (was 3003) - MUST CHANGE IN SERVICE CODE/CONFIG TOO
-      CONSUL_AGENT_HOST: consul-agent # Kept original name
+      PORT: 3005
+      CONSUL_AGENT_HOST: consul-agent
       SERVICE_NAME: search-service
-      KAFKA_BROKERS: kafka-dev:9092 # Kept original name
-      # Ensure search-service is configured to listen to 'product_events' topic
-      ELASTICSEARCH_NODE: http://elasticsearch-dev:9200 # Kept original name
+      KAFKA_BROKERS: kafka-dev:9092
+      ELASTICSEARCH_NODE: http://elasticsearch-dev:9200 # Correct internal hostname
       NODE_ENV: development
     command: npm run dev
     develop:
@@ -252,17 +257,43 @@ services:
           target: /app/src
         - action: rebuild
           path: ./search-service/package.json
+
+  cart-service:
+    build: ./cart-service
+    container_name: cart-service-dev
+    ports:
+      - "3006:3006"
+    depends_on:
+      consul:
+        condition: service_healthy
+      redis: # Depends on Redis being healthy
+        condition: service_healthy
+    networks:
+      - microservices-network
+    environment:
+      PORT: 3006
+      CONSUL_AGENT_HOST: consul-agent
+      SERVICE_NAME: cart-service
+      NODE_ENV: development
+      REDIS_HOST: redis-dev # Correct internal hostname
+      REDIS_PORT: 6379
+    command: npm run dev
+    develop:
+      watch:
+        - action: sync
+          path: ./cart-service/src
+          target: /app/src
         - action: rebuild
-          path: ./search-service/package-lock.json
+          path: ./cart-service/package.json
 
   auth-db:
     image: postgres:15-alpine
-    container_name: auth-db # Kept original name
+    container_name: auth-db
     ports:
-      - "5434:5432" # Kept original mapping
+      - "5434:5432"
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres # Kept original DEV ONLY password
+      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: auth_db
     volumes:
       - auth-db-data:/var/lib/postgresql/data
@@ -274,18 +305,17 @@ services:
       timeout: 5s
       retries: 5
 
-
-  product-db: # <<< ADDED Database for Product Service
+  product-db:
     image: postgres:15-alpine
-    container_name: product-db # Name used in product-service DATABASE_URL
+    container_name: product-db
     ports:
-      - "5435:5432" # Assigning new host port 5435
+      - "5435:5432"
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres # Kept original DEV ONLY password pattern
-      POSTGRES_DB: product_db # DB name used in product-service DATABASE_URL
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: product_db
     volumes:
-      - product-db-data:/var/lib/postgresql/data # New volume for product data
+      - product-db-data:/var/lib/postgresql/data
     networks:
       - microservices-network
     healthcheck:
@@ -301,5 +331,6 @@ networks:
 volumes:
   auth-db-data:
   es-data-dev:
-  product-db-data:    # <<< Added
-  image-uploads-data: # <<< Added
+  product-db-data:
+  image-uploads-data:
+  redis-data-dev:
