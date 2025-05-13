@@ -1,6 +1,5 @@
 # kind-deployment/kubernetes-manifests.yaml
-# FINAL VERSION: Includes initContainers, command overrides, /health readiness probes,
-# and parameterization (${IMAGE_PREFIX}, ${IMAGE_TAG}) for Jenkins CI/CD
+# COMPLETE FILE - Incorporates robust Elasticsearch probe and correct Search Service.
 
 # --- Zookeeper ---
 apiVersion: apps/v1
@@ -124,7 +123,7 @@ spec:
     nodePort: 30902 # External NodePort for host access
   type: NodePort
 ---
-# --- Elasticsearch ---
+# --- Elasticsearch (MODIFIED READINESS PROBE) ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -162,11 +161,13 @@ spec:
           mountPath: /usr/share/elasticsearch/data
         readinessProbe:
           httpGet:
-            path: /_cluster/health?wait_for_status=yellow&timeout=5s
+            path: /_cluster/health?wait_for_status=yellow&timeout=10s # Increased timeout for the call
             port: 9200
-          initialDelaySeconds: 40
-          periodSeconds: 15
-          timeoutSeconds: 10
+          initialDelaySeconds: 60 # MODIFIED: Increased initial delay significantly for ES cold start
+          periodSeconds: 20     # MODIFIED: Check less frequently during initial startup
+          timeoutSeconds: 15    # MODIFIED: Overall timeout for the probe itself
+          failureThreshold: 5   # MODIFIED: Allow more failures before marking unhealthy
+          successThreshold: 1
       volumes:
       - name: es-data
         emptyDir: {} # Use persistent storage in production
@@ -284,12 +285,12 @@ spec:
             port: 6379
           initialDelaySeconds: 15
           periodSeconds: 10
-        volumeMounts: # Optional for persistence in Kind, good practice
+        volumeMounts:
         - name: redis-data
           mountPath: /data
       volumes:
       - name: redis-data
-        emptyDir: {} # For Kind. Use PersistentVolumeClaim in production.
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -300,9 +301,9 @@ spec:
     app: redis
   ports:
   - protocol: TCP
-    port: 6379       # Internal port for services to connect
+    port: 6379
     targetPort: 6379
-    nodePort: 32379 # External NodePort for direct access (e.g. redis-cli from host)
+    nodePort: 32379
   type: NodePort
 ---
 # --- Auth DB (PostgreSQL) ---
@@ -358,7 +359,7 @@ spec:
   - protocol: TCP
     port: 5432
     targetPort: 5432
-    nodePort: 30434 # Corresponds to setup-kind.sh and kind-cluster-config.yaml
+    nodePort: 30434
   type: NodePort
 ---
 # --- Product DB (PostgreSQL) ---
@@ -414,7 +415,7 @@ spec:
   - protocol: TCP
     port: 5432
     targetPort: 5432
-    nodePort: 30435 # Corresponds to setup-kind.sh and kind-cluster-config.yaml
+    nodePort: 30435
   type: NodePort
 ---
 # --- API Gateway ---
@@ -444,16 +445,16 @@ spec:
         - name: PORT
           value: "3000"
         - name: CONSUL_AGENT_HOST
-          value: "consul-svc" # Internal service name for Consul
+          value: "consul-svc"
         - name: SERVICE_NAME
           value: "api-gateway"
         - name: NODE_ENV
           value: "development"
-        - name: POD_IP # For Consul registration if needed (address)
+        - name: POD_IP
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
-        - name: POD_HOSTNAME # For Consul registration (unique ID component)
+        - name: POD_HOSTNAME
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
@@ -461,7 +462,7 @@ spec:
           httpGet:
             path: /health
             port: 3000
-          initialDelaySeconds: 25 # Increased for potential cold start or dependencies
+          initialDelaySeconds: 25
           periodSeconds: 10
           timeoutSeconds: 5
 ---
@@ -474,9 +475,9 @@ spec:
     app: api-gateway
   ports:
   - protocol: TCP
-    port: 3000 # Internal K8s service port
-    targetPort: 3000 # Container port of api-gateway
-    nodePort: 30000 # Exposed on Kind node (matches kind-config and setup script)
+    port: 3000
+    targetPort: 3000
+    nodePort: 30000
   type: NodePort
 ---
 # --- Auth Service ---
@@ -527,7 +528,7 @@ spec:
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
         - name: JWT_SECRET
-          value: "your-secret-key-for-docker-dev" # Use K8s secrets for production
+          value: "your-secret-key-for-docker-dev"
         - name: CONSUL_AGENT_HOST
           value: "consul-svc"
         - name: SERVICE_NAME
@@ -615,12 +616,12 @@ spec:
           value: "consul-svc"
         - name: SERVICE_NAME
           value: "product-service"
-        - name: KAFKA_BROKERS # Connect to internal Kafka service
+        - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
         - name: NODE_ENV
           value: "development"
-        - name: IMAGE_SERVICE_BASE_URL # For generating image URLs within product data
-          value: "<http://image-service-svc:3004>" # Use internal K8s service name for service-to-service
+        - name: IMAGE_SERVICE_BASE_URL
+          value: "http://image-service-svc:3004"
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -675,7 +676,7 @@ spec:
         ports:
         - containerPort: 3004
         volumeMounts:
-        - name: image-uploads # Volume for image persistence
+        - name: image-uploads
           mountPath: /app/uploads
         env:
         - name: PORT
@@ -686,10 +687,10 @@ spec:
           value: "image-service"
         - name: NODE_ENV
           value: "development"
-        - name: UPLOAD_DIR # Internal path in container
+        - name: UPLOAD_DIR
           value: "/app/uploads"
-        - name: IMAGE_BASE_URL # Public URL structure (exposed via NodePort 13004)
-          value: "<http://localhost:13004>" # Match the NodePort defined in kind-cluster-config.yaml
+        - name: IMAGE_BASE_URL
+          value: "http://localhost:13004"
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -705,9 +706,9 @@ spec:
           initialDelaySeconds: 25
           periodSeconds: 10
           timeoutSeconds: 5
-      volumes: # Define the volume used by image-service
+      volumes:
       - name: image-uploads
-        emptyDir: {} # For Kind. Use PV/PVC in production.
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -723,7 +724,7 @@ spec:
     nodePort: 30004
   type: NodePort
 ---
-# --- Search Service ---
+# --- Search Service (Optional Init Container shown, Readiness Probe Updated) ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -740,6 +741,19 @@ spec:
       labels:
         app: search-service
     spec:
+      # Optional: Init Container to wait for Elasticsearch if in-app retry is insufficient
+      # initContainers:
+      # - name: wait-for-elasticsearch
+      #   image: busybox:1.36 # Small image with 'nc' (netcat)
+      #   command: ['sh', '-c']
+      #   args:
+      #     - |
+      #       echo "[InitContainer search-service] Waiting for elasticsearch-svc to be available..."
+      #       until nc -zv elasticsearch-svc 9200; do
+      #         echo "[InitContainer search-service] elasticsearch-svc not yet available, sleeping for 5s...";
+      #         sleep 5;
+      #       done;
+      #       echo "[InitContainer search-service] elasticsearch-svc is now available on port 9200."
       containers:
       - name: search-service
         image: ${IMAGE_PREFIX}/search-service:${IMAGE_TAG}
@@ -756,7 +770,7 @@ spec:
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
         - name: ELASTICSEARCH_NODE
-          value: "<http://elasticsearch-svc:9200>"
+          value: "http://elasticsearch-svc:9200" # Kubernetes service name for ES
         - name: NODE_ENV
           value: "development"
         - name: POD_IP
@@ -767,13 +781,14 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        readinessProbe:
+        readinessProbe: # Health check for this service based on its own /health endpoint
           httpGet:
-            path: /health
+            path: /health # This uses the enhanced /health endpoint that checks ES
             port: 3005
-          initialDelaySeconds: 40 # Increased due to ES/Kafka dependency
+          initialDelaySeconds: 45 # MODIFIED: Give it ample time after ES connection retries
           periodSeconds: 15
-          timeoutSeconds: 5
+          timeoutSeconds: 10
+          failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service
@@ -808,10 +823,10 @@ spec:
     spec:
       containers:
       - name: cart-service
-        image: ${IMAGE_PREFIX}/cart-service:${IMAGE_TAG} # Parameterized image
+        image: ${IMAGE_PREFIX}/cart-service:${IMAGE_TAG}
         imagePullPolicy: IfNotPresent
         ports:
-        - containerPort: 3006 # Internal port for the cart service
+        - containerPort: 3006
         env:
         - name: PORT
           value: "3006"
@@ -821,8 +836,8 @@ spec:
           value: "cart-service"
         - name: NODE_ENV
           value: "development"
-        - name: REDIS_HOST # Connect to internal Redis service
-          value: "redis-svc"
+        - name: REDIS_HOST
+          value: "redis-svc" # Connect to internal Redis service name
         - name: REDIS_PORT
           value: "6379"
         - name: POD_IP
@@ -835,9 +850,9 @@ spec:
               fieldPath: metadata.name
         readinessProbe:
           httpGet:
-            path: /health
+            path: /health # This /health endpoint internally checks Redis
             port: 3006
-          initialDelaySeconds: 30 # Allow time for Redis connection and Consul registration
+          initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
 ---
@@ -850,7 +865,7 @@ spec:
     app: cart-service
   ports:
   - protocol: TCP
-    port: 3006 # Internal K8s service port
-    targetPort: 3006 # Container port of cart-service
-    nodePort: 30006 # Exposed on Kind node
+    port: 3006
+    targetPort: 3006
+    nodePort: 30006
   type: NodePort
