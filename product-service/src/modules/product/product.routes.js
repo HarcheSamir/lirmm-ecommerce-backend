@@ -1,6 +1,9 @@
+// product-service/src/modules/product/product.routes.js
+
 const express = require('express');
 const {
     createProduct,
+    createManyProducts, // <-- IMPORT NEW CONTROLLER
     getProducts,
     getProductById,
     getProductBySku,
@@ -23,6 +26,7 @@ router.get('/id/:id', getProductById);
 router.get('/sku/:sku', getProductBySku);
 
 router.post('/', /* authMiddleware, */ createProduct);
+router.post('/bulk', /* authMiddleware, */ createManyProducts); // <-- ADD NEW ROUTE
 router.put('/:id', /* authMiddleware, */ updateProduct); // Updates core product details
 router.delete('/:id', /* authMiddleware, */ deleteProduct);
 

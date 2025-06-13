@@ -21,12 +21,11 @@ model Category {
   name      String
   slug      String    @unique
   parentId  String?
-  isLeaf    Boolean   @default(false)
   imageUrl  String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  parent    Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  parent    Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   children  Category[] @relation("CategoryHierarchy")
   products  ProductCategory[]
 

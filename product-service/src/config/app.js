@@ -13,7 +13,7 @@ const app = express();
 
 // Global Middlewares
 app.use(cors()); // Configure CORS appropriately for production
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 if (process.env.NODE_ENV === 'development') {
     app.use(morgan('dev'));
 }
@@ -21,7 +21,7 @@ if (process.env.NODE_ENV === 'development') {
 // Health Check Endpoint
 app.get('/health', (req, res) => {
     // TODO: Add database connection check if needed
-    res.status(200).json({ status: 'UP', service: process.env.SERVICE_NAME});
+    res.status(200).json({ status: 'UP', service: process.env.SERVICE_NAME });
 });
 
 // API Routes
