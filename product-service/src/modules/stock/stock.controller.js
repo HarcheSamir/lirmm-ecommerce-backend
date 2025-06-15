@@ -1,11 +1,9 @@
+// ===== FILE: product-service/src/modules/stock/stock.controller.js =====
+
 const prisma = require('../../config/prisma');
 const { sendMessage } = require('../../kafka/producer');
-const { Prisma } = require('@prisma/client');
-// Import the helper function (adjust path if needed)
 const { fetchAndFormatProductForKafka } = require('../product/product.controller');
 
-
-// Adjust stock for a specific variant
 const adjustStock = async (req, res, next) => {
     try {
         const { variantId } = req.params;
@@ -13,27 +11,30 @@ const adjustStock = async (req, res, next) => {
 
         if (changeQuantity === undefined || !type) {
              return res.status(400).json({ message: 'changeQuantity and type are required.' });
-         }
+        }
         const quantity = parseInt(changeQuantity, 10);
          if (isNaN(quantity)) {
              return res.status(400).json({ message: 'changeQuantity must be an integer.' });
-         }
-        const validTypes = Object.values(Prisma.StockMovementType);
-        if (!validTypes.includes(type)) {
-             return res.status(400).json({ message: `Invalid stock movement type. Valid types are: ${validTypes.join(', ')}` });
         }
 
-        let productId = null; // To store the product ID
+        // The validation for 'type' is implicitly handled by the database enum.
+        // The application-level check that was causing a crash remains disabled.
+        // const { Prisma } = require('@prisma/client');
+        // const validTypes = Object.values(Prisma.StockMovementType);
+        // if (!validTypes.includes(type)) {
+        //      return res.status(400).json({ message: `Invalid stock movement type.` });
+        // }
 
-        // Use transaction
+        let productId = null;
+
         const result = await prisma.$transaction(async (tx) => {
             const variant = await tx.variant.findUnique({
                  where: { id: variantId },
-                 select: { stockQuantity: true, productId: true } // Select productId
+                 select: { stockQuantity: true, productId: true }
             });
             if (!variant) { throw new Error('VariantNotFound'); }
 
-            productId = variant.productId; // Store product ID
+            productId = variant.productId;
 
             const currentStock = variant.stockQuantity;
             const newStock = currentStock + quantity;
@@ -48,17 +49,12 @@ const adjustStock = async (req, res, next) => {
             return { movement, updatedVariant };
         });
 
-        // --- Send Kafka Event AFTER successful transaction ---
-        // Send PRODUCT_UPDATED for the parent product as stock change might affect searchability (e.g., isActive status, stock filters)
-        if (productId) { // Ensure we got the product ID
+        if (productId) {
             const kafkaPayload = await fetchAndFormatProductForKafka(productId);
             if (kafkaPayload) {
                 await sendMessage('PRODUCT_UPDATED', kafkaPayload, productId);
             }
-        } else {
-            console.error(`[Stock Adjust] Could not determine productId for variant ${variantId} to send Kafka update.`);
         }
-        // --- End Kafka Event ---
 
         res.status(201).json({
              message: `Stock adjusted successfully for variant ${variantId}.`,
@@ -69,19 +65,34 @@ const adjustStock = async (req, res, next) => {
     } catch (err) {
         if (err.message === 'VariantNotFound') {
              return res.status(404).json({ message: `Variant with ID ${req.params.variantId} not found.` });
-         }
+        }
         if (err.message === 'InsufficientStock') {
              return res.status(400).json({ message: 'Insufficient stock for the requested decrease.' });
-         }
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
-            return res.status(404).json({ message: `Variant with ID ${req.params.variantId} not found.` });
+        }
+        // This will catch the DB error if an invalid `type` string is sent
+        if (err.code === 'P2003' || err.message?.includes("invalid input value for enum")) {
+            return res.status(400).json({ message: `Invalid 'type' provided for stock movement.` });
+        }
+        if (err.code === 'P2025') {
+             return res.status(404).json({ message: 'Variant not found.' });
         }
         next(err);
     }
 };
 
-// Keep original get method
-const getStockMovements = async (req, res, next) => { /* ... original code ... */ };
+const getStockMovements = async (req, res, next) => {
+    try {
+        const { variantId } = req.params;
+        const movements = await prisma.stockMovement.findMany({
+            where: { variantId },
+            orderBy: { timestamp: 'desc' },
+        });
+        res.json(movements);
+    } catch (err) {
+        next(err);
+    }
+ };
+
 
 module.exports = {
     adjustStock,

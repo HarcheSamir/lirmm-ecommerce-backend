@@ -1,6 +1,7 @@
 tree -I "node_modules"
 
 find . -type f \
+  -path "*/order-service/*" \
   ! -path "*/node_modules/*" \
   ! -path "*/.git/*" \
   ! -path "*/migrations/*" \

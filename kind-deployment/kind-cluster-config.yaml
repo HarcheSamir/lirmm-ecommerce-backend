@@ -49,6 +49,10 @@ nodes:
   - containerPort: 30006
     hostPort: 13006
     protocol: TCP
+    # Order Service (NodePort 30007 from order-service-svc) # <-- ADDED
+  - containerPort: 30007
+    hostPort: 13007
+    protocol: TCP
   # Auth DB (PostgreSQL, NodePort 30434 from auth-db-svc)
   - containerPort: 30434
     hostPort: 15434
@@ -57,3 +61,8 @@ nodes:
   - containerPort: 30435
     hostPort: 15435
     protocol: TCP
+  # Order DB (PostgreSQL, NodePort 30436 from order-db-svc) # <-- ADDED
+  - containerPort: 30436
+    hostPort: 15436
+    protocol: TCP
+

@@ -1,0 +1,54 @@
+// ===== FILE: order-service/prisma/schema.prisma =====
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  // --- MODIFIED FIELDS ---
+  userId          String?     // Now optional, for registered users
+  guestEmail      String?     // For guest checkouts
+  // --- END MODIFICATIONS ---
+  status          OrderStatus @default(PENDING)
+  totalAmount     Decimal     @db.Decimal(10, 2)
+  shippingAddress Json?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  items           OrderItem[]
+
+  @@index([userId])
+  @@index([guestEmail]) // Index the guest email for lookups
+}
+
+model OrderItem {
+  id                  String   @id @default(uuid())
+  orderId             String
+  productId           String
+  variantId           String
+  productName         String
+  variantAttributes   Json
+  sku                 String
+  priceAtTimeOfOrder  Decimal  @db.Decimal(10, 2)
+  quantity            Int
+
+  order               Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([variantId])
+}

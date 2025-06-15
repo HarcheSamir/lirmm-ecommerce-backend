@@ -1,3 +1,5 @@
+// ===== FILE: product-service/src/middlewares/auth.js =====
+
 const axios = require('axios');
 const { findService } = require('../config/consul'); // Import discovery helper
 
@@ -13,17 +15,17 @@ const authMiddleware = async (req, res, next) => {
             return res.status(401).json({ message: 'Token missing' });
         }
 
-        // 1. Discover Auth Service
-        const authService = await findService('auth-service'); // Ensure 'auth-service' is the correct name in Consul
-        if (!authService) {
+        // 1. Discover Auth Service URL
+        const authServiceUrl = await findService('auth-service'); // CORRECT: The result is the full URL string.
+        if (!authServiceUrl) {
             console.error('Auth Middleware: Could not discover auth-service via Consul.');
             return res.status(503).json({ message: 'Authentication service is currently unavailable.' });
         }
 
         // 2. Validate token with discovered Auth service instance
-        // Ensure the auth-service exposes a /auth/validate endpoint
-        const validationUrl = `${authService.url}/validate`;
-        console.log(`Auth Middleware: Validating token via ${validationUrl}`);
+        // CORRECT: Construct the validation URL by appending the path to the base URL string.
+        const validationUrl = `${authServiceUrl}/validate`;
+        console.log(`Auth Middleware: Validating token via ${validationUrl}`); // This log will now show the correct URL.
 
         const response = await axios.post(validationUrl, { token }, {
             timeout: 5000 // Add a reasonable timeout
@@ -36,7 +38,7 @@ const authMiddleware = async (req, res, next) => {
         }
 
         // 3. Attach user data to the request object
-        req.user = response.data.user; // Contains user ID, roles, etc.
+        req.user = response.data.user; // Contains user ID, roles, permissions etc.
         console.log(`Auth Middleware: Token validated successfully for user ID: ${req.user.id}`);
         next(); // Proceed to the next middleware or route handler
 
@@ -44,12 +46,11 @@ const authMiddleware = async (req, res, next) => {
         if (error.response) {
             // Auth service returned an error (e.g., 401, 500)
             console.error(`Auth Middleware: Auth service responded with error ${error.response.status}:`, error.response.data);
-            // Pass along the status and message from the auth service if available
             return res.status(error.response.status || 401).json({ message: error.response.data?.message || 'Authentication failed' });
-        } else if (error.request) {
-            // Network error communicating with auth service (service down, DNS issue, timeout)
-            console.error('Auth Middleware: Network error contacting auth service:', error.message);
-            return res.status(503).json({ message: 'Authentication service unavailable (network error).' });
+        } else if (error.request || (error.code && ['ECONNREFUSED', 'ERR_INVALID_URL'].includes(error.code))) {
+            // Network error communicating with auth service (service down, DNS issue, timeout, or invalid URL from failed discovery)
+            console.error('Auth Middleware: Network or URL error contacting auth service:', error.message);
+            return res.status(503).json({ message: 'Authentication service unavailable (network/URL error).' });
         } else if (error.message.includes('Consul discovery failed')) {
              // Specific error from our findService helper
              console.error('Auth Middleware: Consul discovery failed:', error.message);

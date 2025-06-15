@@ -1,3 +1,4 @@
+// ===== FILE: auth-service/prisma/schema.prisma =====
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,12 +8,51 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique // e.g., 'ADMIN', 'CLIENT'
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  name        String   @unique // e.g., 'create:product', 'read:users'
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  assignedAt   DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
 model User {
-  id         String   @id @default(uuid())
-  name       String
-  email      String   @unique
-  password   String
-  role       String   @default("USER")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // NEW: Flag for soft deletes
+  isActive  Boolean  @default(true)
+
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id])
+
+  @@index([roleId])
 }

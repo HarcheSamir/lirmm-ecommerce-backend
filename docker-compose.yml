@@ -286,6 +286,38 @@ services:
         - action: rebuild
           path: ./cart-service/package.json
 
+  order-service:
+    build: ./order-service
+    container_name: order-service-dev
+    ports:
+      - "3007:3007"
+    depends_on:
+      order-db:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+      product-service: # depends on product service to adjust stock
+        condition: service_started
+    networks:
+      - microservices-network
+    environment:
+      PORT: 3007
+      DATABASE_URL: postgresql://postgres:postgres@order-db:5432/order_db?schema=public
+      CONSUL_AGENT_HOST: consul-agent
+      SERVICE_NAME: order-service
+      NODE_ENV: development
+    command: npm run dev
+    develop:
+      watch:
+        - action: sync
+          path: ./order-service/src
+          target: /app/src
+        - action: sync
+          path: ./order-service/prisma/schema.prisma
+          target: /app/prisma/schema.prisma
+        - action: rebuild
+          path: ./order-service/package.json
+
   auth-db:
     image: postgres:15-alpine
     container_name: auth-db
@@ -324,6 +356,25 @@ services:
       timeout: 5s
       retries: 5
 
+  order-db:
+    image: postgres:15-alpine
+    container_name: order-db
+    ports:
+      - "5436:5432" # Use a new host port
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: order_db
+    volumes:
+      - order-db-data:/var/lib/postgresql/data
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d order_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 networks:
   microservices-network:
     driver: bridge
@@ -334,3 +385,4 @@ volumes:
   product-db-data:
   image-uploads-data:
   redis-data-dev:
+  order-db-data:

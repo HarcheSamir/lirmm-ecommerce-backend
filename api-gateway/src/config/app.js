@@ -77,6 +77,7 @@ app.use('/products', createDynamicProxy('product-service'));
 app.use('/images', createDynamicProxy('image-service', { '^/images': '' })); // Rewrites /images/xyz to /xyz for image-service
 app.use('/search', createDynamicProxy('search-service'));
 app.use('/carts', createDynamicProxy('cart-service')); // <-- ADDED FOR CART SERVICE
+app.use('/orders', createDynamicProxy('order-service')); // <-- ADDED FOR ORDER SERVICE
 
 // Global Error Handler - Placed AFTER all routes and proxies
 app.use(errorHandler);

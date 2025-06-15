@@ -1,9 +1,9 @@
-// product-service/src/modules/product/product.routes.js
+// ===== FILE: product-service/src/modules/product/product.routes.js =====
 
 const express = require('express');
 const {
     createProduct,
-    createManyProducts, // <-- IMPORT NEW CONTROLLER
+    createManyProducts,
     getProducts,
     getProductById,
     getProductBySku,
@@ -14,35 +14,31 @@ const {
     addImagesToProduct,
     removeImagesFromProduct,
 } = require('./product.controller');
-const variantRoutes = require('../variant/variant.routes'); // Import variant routes
-
+const variantRoutes = require('../variant/variant.routes');
 const authMiddleware = require('../../middlewares/auth');
+const hasPermission = require('../../middlewares/permission'); // <-- NEW
 
 const router = express.Router();
 
-// Core Product Routes
+// --- Public Routes (No Auth Required) ---
 router.get('/', getProducts);
 router.get('/id/:id', getProductById);
 router.get('/sku/:sku', getProductBySku);
 
-router.post('/', /* authMiddleware, */ createProduct);
-router.post('/bulk', /* authMiddleware, */ createManyProducts); // <-- ADD NEW ROUTE
-router.put('/:id', /* authMiddleware, */ updateProduct); // Updates core product details
-router.delete('/:id', /* authMiddleware, */ deleteProduct);
-
+// --- Protected Routes (Auth and Permissions Required) ---
+router.post('/', authMiddleware, hasPermission('create:product'), createProduct);
+router.post('/bulk', authMiddleware, hasPermission('create:product'), createManyProducts);
+router.put('/:id', authMiddleware, hasPermission('update:product'), updateProduct);
+router.delete('/:id', authMiddleware, hasPermission('delete:product'), deleteProduct);
 
 // Routes for managing relationships
-router.post('/:id/categories', /* authMiddleware, */ addCategoriesToProduct);
-router.delete('/:id/categories', /* authMiddleware, */ removeCategoriesFromProduct); // Use DELETE method with body or POST for removal
+router.post('/:id/categories', authMiddleware, hasPermission('update:product'), addCategoriesToProduct);
+router.delete('/:id/categories', authMiddleware, hasPermission('update:product'), removeCategoriesFromProduct);
 
-router.post('/:id/images', /* authMiddleware, */ addImagesToProduct);
-router.delete('/:id/images', /* authMiddleware, */ removeImagesFromProduct); // Use DELETE method with body or POST for removal
+router.post('/:id/images', authMiddleware, hasPermission('update:product'), addImagesToProduct);
+router.delete('/:id/images', authMiddleware, hasPermission('update:product'), removeImagesFromProduct);
 
-
-// --- Nested Variant Routes ---
-// Mount variant routes under /products/:productId/variants
-// This makes variant operations relative to a specific product
+// Nested Variant Routes
 router.use('/:productId/variants', variantRoutes);
-
 
 module.exports = router;

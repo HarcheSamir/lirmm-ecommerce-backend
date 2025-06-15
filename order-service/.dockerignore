@@ -1,0 +1,7 @@
+# ===== FILE: order-service/.dockerignore =====
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+Dockerfile

@@ -1,6 +1,6 @@
 // Jenkinsfile
 
-def CUSTOM_SERVICES = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service', 'cart-service'] // <-- ADDED cart-service
+def CUSTOM_SERVICES = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service', 'cart-service', 'order-service'] // <-- ADDED cart-service
 def PUBLIC_IMAGES = [
     'postgres:15-alpine',
     'confluentinc/cp-zookeeper:7.3.2',
@@ -12,9 +12,9 @@ def PUBLIC_IMAGES = [
 def DEPLOYMENT_NAMES = [
     'zookeeper-deployment', 'kafka-deployment', 'elasticsearch-deployment',
     'consul-deployment', 'redis-deployment', // <-- ADDED redis-deployment
-    'auth-db-deployment', 'product-db-deployment',
+    'auth-db-deployment', 'product-db-deployment', 'order-db-deployment',
     'api-gateway-deployment', 'auth-service-deployment', 'product-service-deployment',
-    'image-service-deployment', 'search-service-deployment', 'cart-service-deployment' // <-- ADDED cart-service-deployment
+    'image-service-deployment', 'search-service-deployment', 'cart-service-deployment', 'order-service-deployment' // <-- ADDED cart-service-deployment
 ]
 
 
