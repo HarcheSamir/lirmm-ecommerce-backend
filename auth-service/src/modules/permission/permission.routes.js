@@ -7,7 +7,7 @@ const hasPermission = require('../../middlewares/permission');
 
 const router = express.Router();
 
-// This endpoint is used by admins to see what permissions are available to assign to roles.
-router.get('/', authMiddleware, hasPermission('read:roles'), getAllPermissions);
+// --- FIX: Use singular permission name ---
+router.get('/', authMiddleware, hasPermission('read:role'), getAllPermissions);
 
 module.exports = router;

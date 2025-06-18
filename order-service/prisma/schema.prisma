@@ -1,13 +1,17 @@
-// ===== FILE: order-service/prisma/schema.prisma =====
 generator client {
   provider = "prisma-client-js"
 }
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
-
+model Product {
+  id       String  @id
+  name     String
+  sku      String
+  imageUrl String?
+  @@map("denormalized_products")
+}
 enum OrderStatus {
   PENDING
   PAID
@@ -16,38 +20,36 @@ enum OrderStatus {
   DELIVERED
   CANCELLED
 }
-
-model Order {
-  id              String      @id @default(uuid())
-  // --- MODIFIED FIELDS ---
-  userId          String?     // Now optional, for registered users
-  guestEmail      String?     // For guest checkouts
-  // --- END MODIFICATIONS ---
-  status          OrderStatus @default(PENDING)
-  totalAmount     Decimal     @db.Decimal(10, 2)
-  shippingAddress Json?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-
-  items           OrderItem[]
-
-  @@index([userId])
-  @@index([guestEmail]) // Index the guest email for lookups
+enum PaymentMethod {
+  CREDIT_CARD
+  CASH_ON_DELIVERY
 }
-
+model Order {
+  id              String        @id @default(uuid())
+  userId          String?
+  guestEmail      String?
+  status          OrderStatus   @default(PENDING)
+  paymentMethod   PaymentMethod
+  totalAmount     Decimal       @db.Decimal(10, 2)
+  shippingAddress Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  items           OrderItem[]
+  @@index([userId])
+  @@index([guestEmail])
+}
 model OrderItem {
-  id                  String   @id @default(uuid())
-  orderId             String
-  productId           String
-  variantId           String
-  productName         String
-  variantAttributes   Json
-  sku                 String
-  priceAtTimeOfOrder  Decimal  @db.Decimal(10, 2)
-  quantity            Int
-
-  order               Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
+  id                 String  @id @default(uuid())
+  orderId            String
+  productId          String
+  variantId          String
+  productName        String
+  variantAttributes  Json
+  sku                String
+  imageUrl           String?
+  priceAtTimeOfOrder Decimal @db.Decimal(10, 2)
+  quantity           Int
+  order              Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   @@index([orderId])
   @@index([productId])
   @@index([variantId])

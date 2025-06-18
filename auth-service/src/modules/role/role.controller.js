@@ -11,10 +11,24 @@ const roleSelect = {
             permission: { select: { id: true, name: true, description: true } }
         }
     },
+    // --- MODIFICATION: Fetch associated users ---
+    users: {
+        take: 5, // Limit to the first 5 users for performance
+        select: {
+            id: true,
+            name: true,
+            profileImage: true
+        },
+        orderBy: {
+            createdAt: 'asc' // To get a consistent set of users
+        }
+    },
+    // --- END MODIFICATION ---
     _count: { select: { users: true } }
 };
 
 // Helper to format role response
+// No change needed here, as the `...rest` spread will now include the new `users` field.
 const formatRole = (role) => {
     if (!role) return null;
     const { _count, ...rest } = role;
@@ -27,7 +41,10 @@ const formatRole = (role) => {
 
 const getAllRoles = async (req, res, next) => {
     try {
-        const roles = await prisma.role.findMany({ select: roleSelect, orderBy: { name: 'asc' } });
+        const roles = await prisma.role.findMany({ 
+            select: roleSelect, 
+            orderBy: { name: 'asc' } 
+        });
         res.json(roles.map(formatRole));
     } catch (err) {
         next(err);
@@ -93,16 +110,12 @@ const updateRole = async (req, res, next) => {
         }
 
         const updatedRole = await prisma.$transaction(async (tx) => {
-            // Update basic info
             const role = await tx.role.update({
                 where: { id },
                 data: { name, description },
             });
-            // If permissionIds is provided, we replace all existing permissions
             if (Array.isArray(permissionIds)) {
-                // Delete existing permissions for this role
                 await tx.rolePermission.deleteMany({ where: { roleId: id } });
-                // Add new permissions
                 if (permissionIds.length > 0) {
                     await tx.rolePermission.createMany({
                         data: permissionIds.map(pid => ({ roleId: id, permissionId: pid })),

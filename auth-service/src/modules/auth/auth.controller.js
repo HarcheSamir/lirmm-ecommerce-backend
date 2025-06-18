@@ -5,9 +5,8 @@ const prisma = require('../../config/prisma');
 const  JWT_SECRET = process.env.JWT_SECRET;
 
 const register = async (req, res, next) => {
-  // ... register function remains unchanged from previous step
   try {
-    const { name, email, password, roleName = 'CLIENT' } = req.body;
+    const { name, email, password, roleName = 'CLIENT', profileImage } = req.body; // <-- Allow profileImage on register
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email, and password are required' });
     }
@@ -21,7 +20,7 @@ const register = async (req, res, next) => {
     }
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
-      data: { name, email, password: hashedPassword, roleId: role.id },
+      data: { name, email, password: hashedPassword, roleId: role.id, profileImage },
     });
     res.status(201).json({ message: 'User registered', userId: user.id });
   } catch (err) {
@@ -48,7 +47,6 @@ const login = async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // ---- NEW: Block login for inactive users ----
     if (!user.isActive) {
       return res.status(403).json({ message: 'Forbidden: Your account has been deactivated.' });
     }
@@ -66,6 +64,7 @@ const login = async (req, res, next) => {
       id: user.id,
       email: user.email,
       name: user.name,
+      profileImage: user.profileImage, // <-- ADDED
       role: user.role.name,
       permissions: permissions,
     };
@@ -79,13 +78,12 @@ const login = async (req, res, next) => {
 };
 
 const me = async (req, res, next) => {
-  // ... me function remains unchanged
   try {
     const userId = req.user.id;
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
-        id: true, name: true, email: true, role: { select: { name: true } },
+        id: true, name: true, email: true, profileImage: true, role: { select: { name: true } }, // <-- ADDED
       }
     });
     if (!user) { return res.status(404).json({ message: 'User not found' }); }
@@ -94,7 +92,6 @@ const me = async (req, res, next) => {
 };
 
 const validateToken = async (req, res, next) => {
-  // ... validateToken function remains unchanged
   try {
     const { token } = req.body;
     if (!token) { return res.status(400).json({ message: 'Token is required' }); }
@@ -107,14 +104,13 @@ const validateToken = async (req, res, next) => {
         include: { role: { include: { permissions: { include: { permission: true } } } } },
       });
 
-      // --- ADDED: Also check if user is active during validation ---
       if (!user || !user.isActive) {
         return res.status(401).json({ valid: false, message: 'User no longer exists or is inactive' });
       }
 
       const permissions = user.role.permissions.map(rp => rp.permission.name);
       const payload = {
-        id: user.id, email: user.email, name: user.name, role: user.role.name, permissions: permissions,
+        id: user.id, email: user.email, name: user.name, profileImage: user.profileImage, role: user.role.name, permissions: permissions, // <-- ADDED
       };
       res.json({ valid: true, user: payload });
     });

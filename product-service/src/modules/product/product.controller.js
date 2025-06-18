@@ -198,7 +198,14 @@ const getProducts = async (req, res, next) => {
                 include: {
                     variants: { select: { id: true, attributes: true, price: true, stockQuantity: true } },
                     categories: { select: { category: { select: { id: true, name: true, slug: true } } } },
-                    images: { where: { isPrimary: true }, take: 1 }
+                    // Option 1: Get all images ordered by order field
+                    images: { orderBy: { order: 'asc' } }
+                    
+                    // Option 2: If you only want primary images but all of them
+                    // images: { where: { isPrimary: true }, orderBy: { order: 'asc' } }
+                    
+                    // Option 3: If you want just the first image regardless of primary status
+                    // images: { take: 1, orderBy: { order: 'asc' } }
                 }
             }),
             prisma.product.count({ where }),

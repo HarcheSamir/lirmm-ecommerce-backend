@@ -47,9 +47,10 @@ model User {
   password  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  // NEW: Flag for soft deletes
   isActive  Boolean  @default(true)
+  
+  // <-- NEW FIELD -->
+  profileImage String?
 
   roleId    String
   role      Role     @relation(fields: [roleId], references: [id])

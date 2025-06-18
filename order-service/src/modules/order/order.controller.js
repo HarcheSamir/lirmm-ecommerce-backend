@@ -1,154 +1,285 @@
-// ===== FILE: order-service/src/modules/order/order.controller.js =====
 const prisma = require('../../config/prisma');
 const { findService } = require('../../config/consul');
 const axios = require('axios');
 
 const createError = (message, statusCode) => {
-    const error = new Error(message);
-    error.statusCode = statusCode;
-    return error;
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const enrichOrders = async (orders) => {
+  if (!orders || orders.length === 0) return [];
+
+  const userIds = [...new Set(orders.map(o => o.userId).filter(Boolean))];
+  let userMap = new Map();
+
+  if (userIds.length > 0) {
+    try {
+      const authServiceUrl = await findService('auth-service');
+      if (authServiceUrl) {
+        const userPromises = userIds.map(id => axios.get(`${authServiceUrl}/users/${id}`).catch(() => null));
+        const userResponses = await Promise.all(userPromises);
+        userResponses.forEach(res => {
+          if (res && res.data) userMap.set(res.data.id, res.data);
+        });
+      }
+    } catch (e) {
+      console.error("Failed to enrich orders with user data:", e.message);
+    }
+  }
+
+  const productIds = [...new Set(orders.flatMap(o => o.items.map(i => i.productId)))];
+  let productMap = new Map();
+
+  if (productIds.length > 0) {
+    try {
+      const localProducts = await prisma.product.findMany({
+        where: { id: { in: productIds } }
+      });
+      localProducts.forEach(p => productMap.set(p.id, p));
+    } catch (e) {
+      console.error("Failed to enrich orders with local product data:", e.message);
+    }
+  }
+
+  return orders.map(order => {
+    const user = order.userId ? userMap.get(order.userId) : null;
+    const enrichedItems = order.items.map(item => {
+      const product = productMap.get(item.productId);
+      return {
+        ...item,
+        productName: product?.name || item.productName,
+        sku: product?.sku || item.sku,
+        imageUrl: product?.imageUrl || item.imageUrl,
+      };
+    });
+    return {
+      ...order,
+      items: enrichedItems,
+      customerName: user?.name || 'Guest',
+      customerAvatar: user?.profileImage || null
+    };
+  });
 };
 
 const createOrder = async (req, res, next) => {
-    const { items, shippingAddress, guestEmail } = req.body;
-    const orderPlacer = { userId: req.user?.id, email: req.user?.email || guestEmail };
-    if (!orderPlacer.email) { return next(createError('An email address is required.', 400)); }
-    if (!Array.isArray(items) || items.length === 0) { return next(createError('Order must contain at least one item.', 400)); }
+  const { items, shippingAddress, guestEmail, paymentMethod } = req.body;
+  const orderPlacer = {
+    userId: req.user?.id,
+    email: req.user?.email || guestEmail
+  };
 
-    try {
-        const productSvcUrl = await findService('product-service');
-        if (!productSvcUrl) { throw createError('Product service is currently unavailable.', 503); }
+  if (!orderPlacer.email) {
+    return next(createError('An email address is required.', 400));
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return next(createError('Order must contain at least one item.', 400));
+  }
 
-        const createdOrderId = await prisma.$transaction(async (tx) => {
-            let totalAmount = 0;
-            const order = await tx.order.create({ data: { userId: orderPlacer.userId, guestEmail: orderPlacer.email, status: 'PENDING', shippingAddress, totalAmount: 0 } });
-            for (const item of items) {
-                const stockAdjustUrl = `${productSvcUrl}/stock/adjust/${item.variantId}`;
-                await axios.post(stockAdjustUrl, { changeQuantity: -item.quantity, type: 'ORDER', reason: `Order placement: ${order.id}`, relatedOrderId: order.id }, { timeout: 7000 });
-                totalAmount += (item.price * item.quantity);
-                await tx.orderItem.create({ data: { orderId: order.id, productId: item.productId, variantId: item.variantId, productName: item.name || 'N/A', variantAttributes: item.attributes || {}, sku: item.sku || 'N/A', priceAtTimeOfOrder: item.price, quantity: item.quantity } });
-            }
-            await tx.order.update({ where: { id: order.id }, data: { totalAmount, status: 'PAID' } });
-            return order.id;
-        });
+  try {
+    const productSvcUrl = await findService('product-service');
+    if (!productSvcUrl) {
+      throw createError('Product service is currently unavailable for stock adjustment.', 503);
+    }
 
-        const finalOrder = await prisma.order.findUnique({ where: { id: createdOrderId }, include: { items: true } });
-        res.status(201).json(finalOrder);
-    } catch (error) {
-        if (axios.isAxiosError(error)) {
-            const message = error.response?.data?.message || 'A downstream service failed. The order has been rolled back.';
-            const status = error.response?.status || 503;
-            return next(createError(message, status));
+    const createdOrderId = await prisma.$transaction(async (tx) => {
+      const productIds = items.map(item => item.productId);
+      const localProducts = await tx.product.findMany({
+        where: { id: { in: productIds } }
+      });
+      const localProductMap = new Map(localProducts.map(p => [p.id, p]));
+
+      let totalAmount = 0;
+      const shippingCost = 9.18;
+      const initialStatus = paymentMethod === 'CASH_ON_DELIVERY' ? 'PENDING' : 'PAID';
+
+      const order = await tx.order.create({
+        data: {
+          userId: orderPlacer.userId,
+          guestEmail: orderPlacer.email,
+          shippingAddress,
+          paymentMethod,
+          totalAmount: 0,
+          status: 'PENDING'
         }
-        return next(error);
-    }
-};
+      });
 
-const getGuestOrder = async (req, res, next) => {
-    try {
-        const { orderId, email } = req.body;
-        if (!orderId || !email) { return res.status(400).json({ message: 'Order ID and email are required.' }); }
-        const order = await prisma.order.findFirst({ where: { id: orderId, guestEmail: email }, include: { items: true } });
-        if (!order) { return res.status(404).json({ message: 'Order not found or email does not match.' }); }
-        res.json(order);
-    } catch(err) { next(err); }
-};
+      for (const item of items) {
+        const localProduct = localProductMap.get(item.productId);
+        if (!localProduct) throw createError(`Product with ID ${item.productId} not found. The system may be syncing.`, 404);
 
-// --- MODIFIED FUNCTION ---
-const getMyOrders = async (req, res, next) => {
-    try {
-        // 1. Get pagination parameters from query string
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
-        const skip = (page - 1) * limit;
-
-        // Define the where clause for this user's orders
-        const where = { userId: req.user.id };
-
-        // 2. Use a transaction to fetch data and total count in parallel
-        const [orders, total] = await prisma.$transaction([
-            prisma.order.findMany({
-                where,
-                skip,
-                take: limit,
-                orderBy: { createdAt: 'desc' },
-                include: { items: true }
-            }),
-            prisma.order.count({ where })
-        ]);
-        
-        // 3. Format the response exactly like the other services
-        res.json({
-            data: orders,
-            pagination: {
-                total,
-                page,
-                limit,
-                totalPages: Math.ceil(total / limit),
-            },
+        const stockAdjustUrl = `${productSvcUrl}/stock/adjust/${item.variantId}`;
+        await axios.post(stockAdjustUrl, {
+          changeQuantity: -item.quantity,
+          type: 'ORDER',
+          reason: `Order placement: ${order.id}`,
+          relatedOrderId: order.id
         });
-    } catch(err) {
-        next(err);
-    }
+
+        totalAmount += (item.price * item.quantity);
+
+        await tx.orderItem.create({
+          data: {
+            orderId: order.id,
+            productId: item.productId,
+            variantId: item.variantId,
+            productName: localProduct.name,
+            variantAttributes: item.attributes || {},
+            sku: localProduct.sku,
+            imageUrl: localProduct.imageUrl,
+            priceAtTimeOfOrder: item.price,
+            quantity: item.quantity
+          }
+        });
+      }
+
+      const finalTotal = totalAmount + shippingCost;
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          totalAmount: finalTotal,
+          status: initialStatus
+        }
+      });
+
+      return order.id;
+    });
+
+    const finalOrder = await prisma.order.findUnique({
+      where: { id: createdOrderId },
+      include: { items: true }
+    });
+
+    res.status(201).json(finalOrder);
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || 'A downstream service failed. The order has been rolled back.';
+    const status = error.statusCode || error.response?.status || 503;
+    return next(createError(message, status));
+  }
 };
 
 const getOrderById = async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const order = await prisma.order.findUnique({
-            where: { id: id },
-            include: { items: true },
-        });
-
-        if (!order) {
-            return res.status(404).json({ message: 'Order not found.' });
-        }
-        return res.json(order);
-    } catch (err) {
-        next(err);
+  try {
+    const { id } = req.params;
+    const order = await prisma.order.findUnique({
+      where: { id: id },
+      include: { items: true },
+    });
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found.' });
     }
+    const [enrichedOrder] = await enrichOrders([order]);
+    return res.json(enrichedOrder);
+  } catch (err) {
+    next(err);
+  }
 };
 
-// --- MODIFIED FUNCTION ---
-const getAllOrders = async(req, res, next) => {
-    try {
-        // 1. Get pagination parameters from query string
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
-        const skip = (page - 1) * limit;
+const getAllOrders = async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const [orders, total] = await prisma.$transaction([
+      prisma.order.findMany({
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: { items: true }
+      }),
+      prisma.order.count()
+    ]);
+    const enrichedData = await enrichOrders(orders);
+    res.json({
+      data: enrichedData,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
-        // 2. Use a transaction to fetch data and total count in parallel
-        const [orders, total] = await prisma.$transaction([
-            prisma.order.findMany({
-                skip,
-                take: limit,
-                orderBy: { createdAt: 'desc' },
-                include: { items: true }
-            }),
-            prisma.order.count()
-        ]);
-        
-        // 3. Format the response exactly like the other services
-        res.json({
-            data: orders,
-            pagination: {
-                total,
-                page,
-                limit,
-                totalPages: Math.ceil(total / limit),
-            },
-        });
-    } catch(err) {
-        next(err);
-    }
+const getMyOrders = async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const where = { userId: req.user.id };
+    const [orders, total] = await prisma.$transaction([
+      prisma.order.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: { items: true }
+      }),
+      prisma.order.count({ where })
+    ]);
+    const enrichedData = await enrichOrders(orders);
+    res.json({
+      data: enrichedData,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
 const updateOrderStatus = async (req, res, next) => {
-    try {
-        const { status } = req.body;
-        const updatedOrder = await prisma.order.update({ where: { id: req.params.id }, data: { status }, include: { items: true } });
-        res.json(updatedOrder);
-    } catch (err) { next(err); }
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    await prisma.order.update({
+      where: { id },
+      data: { status }
+    });
+    const updatedOrder = await prisma.order.findUnique({
+      where: { id },
+      include: { items: true }
+    });
+    const [enrichedOrder] = await enrichOrders([updatedOrder]);
+    res.json(enrichedOrder);
+  } catch (err) {
+    next(err);
+  }
 };
 
-module.exports = { createOrder, getGuestOrder, getMyOrders, getOrderById, getAllOrders, updateOrderStatus };
+const getGuestOrder = async (req, res, next) => {
+  try {
+    const { orderId, email } = req.body;
+    if (!orderId || !email) {
+      return res.status(400).json({ message: 'Order ID and email are required.' });
+    }
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, guestEmail: email },
+      include: { items: true }
+    });
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found or email does not match.' });
+    }
+    const [enrichedOrder] = await enrichOrders([order]);
+    res.json(enrichedOrder);
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = {
+  createOrder,
+  getGuestOrder,
+  getMyOrders,
+  getOrderById,
+  getAllOrders,
+  updateOrderStatus
+};

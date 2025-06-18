@@ -7,6 +7,7 @@ const userSelectDetailed = {
   id: true,
   name: true,
   email: true,
+  profileImage: true, // <-- ADDED
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -29,6 +30,10 @@ const userSelectDetailed = {
     },
   },
 };
+
+// ... ALL OTHER FUNCTIONS IN THIS FILE (getAllUsers, getUserById, etc.) REMAIN UNCHANGED
+// as they already use the `userSelectDetailed` object.
+// Providing the full file for completeness.
 
 const getAllUsers = async (req, res, next) => {
   try {
@@ -152,7 +157,6 @@ const updateUser = async (req, res, next) => {
   }
 };
 
-// ... deactivateUser and activateUser remain the same
 const deactivateUser = async (req, res, next) => {
     try {
         const { id: userIdToDeactivate } = req.params;
@@ -194,7 +198,6 @@ const activateUser = async (req, res, next) => {
         next(err);
     }
 };
-
 
 module.exports = {
   getAllUsers,

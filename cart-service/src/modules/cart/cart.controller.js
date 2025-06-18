@@ -28,12 +28,6 @@ const getOrCreateCart = async (req, res, next) => {
                 await redisClient.expire(cartKey, CART_TTL_SECONDS); // Refresh TTL
                 return res.status(200).json(cart);
             } else {
-                // If specific cartId requested but not found, standard is 404.
-                // Or, could create one if 'createIfNotExist' flag was present
-                // For now, treat as "get" strictly for an existing ID
-                // return next(createError('Cart not found', 404));
-                // Per discussion, "getCartById" means get OR create if not found.
-                // This function will act as getCartByID which means creating if it doesn't exist implicitly
                  console.log(`Cart ID ${cartId} not found, will create a new one with this ID if possible, or generate a new one.`);
             }
         }
@@ -67,7 +61,6 @@ const getCartById = async (req, res, next) => {
         const cartDataString = await redisClient.get(cartKey);
 
         if (!cartDataString) {
-             // Option 1: Create if not found (US 3.1 "je peux ajouter un produit à mon panier" implicitly creates one)
             const newCart = {
                 id: cartId, // Use the requested ID
                 userId: req.body.userId || null, // Potentially passed if user just logged in
@@ -77,8 +70,6 @@ const getCartById = async (req, res, next) => {
             };
             await redisClient.set(cartKey, JSON.stringify(newCart), 'EX', CART_TTL_SECONDS);
             return res.status(201).json(newCart); // 201 as it's newly created by this request
-            // // Option 2: Return 404 if strict "get"
-            // return next(createError('Cart not found', 404));
         }
 
         const cart = JSON.parse(cartDataString);
@@ -92,7 +83,8 @@ const getCartById = async (req, res, next) => {
 const addItemToCart = async (req, res, next) => {
     try {
         const { cartId } = req.params;
-        const { productId, variantId, quantity, price, name, imageUrl } = req.body;
+        // *** CRITICAL FIX: Destructure 'attributes' from the request body ***
+        const { productId, variantId, quantity, price, name, imageUrl, attributes } = req.body;
 
         if (!productId || !variantId || quantity === undefined || price === undefined) {
             return next(createError('productId, variantId, quantity, and price are required to add an item.', 400));
@@ -106,39 +98,33 @@ const addItemToCart = async (req, res, next) => {
 
         let cart;
         if (!cartDataString) {
-            // Cart doesn't exist, create a new one
-            cart = {
-                id: cartId,
-                userId: req.body.userId || null, // If provided, associate with user
-                items: [],
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-            };
+            cart = { id: cartId, userId: req.body.userId || null, items: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
         } else {
             cart = JSON.parse(cartDataString);
         }
 
-        // Check if item (product + variant combination) already exists
         const existingItemIndex = cart.items.findIndex(
             item => item.productId === productId && item.variantId === variantId
         );
 
         if (existingItemIndex > -1) {
-            // Item exists, update quantity
             cart.items[existingItemIndex].quantity += parseInt(quantity, 10);
-            cart.items[existingItemIndex].price = parseFloat(price); // Update price in case it changed
+            cart.items[existingItemIndex].price = parseFloat(price);
             if (name) cart.items[existingItemIndex].name = name;
             if (imageUrl) cart.items[existingItemIndex].imageUrl = imageUrl;
+            // *** Also update attributes on re-add ***
+            if (attributes) cart.items[existingItemIndex].attributes = attributes;
         } else {
-            // Item does not exist, add new item
             cart.items.push({
-                itemId: uuidv4(), // Unique ID for this line item in the cart
+                itemId: uuidv4(),
                 productId,
                 variantId,
                 quantity: parseInt(quantity, 10),
-                price: parseFloat(price), // Store price at the time of adding
-                name: name || 'Product Name Unavailable', // Optional: name from client
-                imageUrl: imageUrl || null, // Optional: imageUrl from client
+                price: parseFloat(price),
+                name: name || 'Product Name Unavailable',
+                imageUrl: imageUrl || null,
+                // *** CRITICAL FIX: Store the attributes in the cart item ***
+                attributes: attributes || {},
                 addedAt: new Date().toISOString()
             });
         }
@@ -155,7 +141,7 @@ const addItemToCart = async (req, res, next) => {
 const updateItemInCart = async (req, res, next) => {
     try {
         const { cartId, itemId } = req.params;
-        const { quantity } = req.body; // Can also update price, name, etc. if needed
+        const { quantity } = req.body;
 
         if (quantity === undefined || parseInt(quantity, 10) <= 0) {
             return next(createError('New quantity must be a positive integer.', 400));
@@ -176,9 +162,6 @@ const updateItemInCart = async (req, res, next) => {
         }
 
         cart.items[itemIndex].quantity = parseInt(quantity, 10);
-        // Optionally update price if client sends it:
-        // if (req.body.price !== undefined) cart.items[itemIndex].price = parseFloat(req.body.price);
-
         cart.updatedAt = new Date().toISOString();
 
         await redisClient.set(cartKey, JSON.stringify(cart), 'EX', CART_TTL_SECONDS);
@@ -238,7 +221,6 @@ const clearCart = async (req, res, next) => {
     }
 };
 
-// Optional: Explicitly delete cart (otherwise TTL handles it)
 const deleteCart = async (req, res, next) => {
     try {
         const { cartId } = req.params;
@@ -249,7 +231,7 @@ const deleteCart = async (req, res, next) => {
             return next(createError('Cart not found or already deleted.', 404));
         }
 
-        res.status(204).send(); // No content
+        res.status(204).send();
     } catch (error) {
         next(error);
     }
