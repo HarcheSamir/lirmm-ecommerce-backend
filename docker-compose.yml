@@ -42,33 +42,29 @@ services:
       timeout: 10s
       retries: 5
 
-  elasticsearch: # <<< MODIFIED SECTION
+  elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
     container_name: elasticsearch-dev
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false # Keep security disabled for dev simplicity
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m # Keep memory settings
-      # Optional: Setting network.host explicitly might help in some Docker envs, but usually not needed with single-node
-      # - network.host=0.0.0.0
-    ulimits: # Keep ulimits unless they specifically cause OS issues
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ulimits:
       memlock:
         soft: -1
         hard: -1
     volumes:
-      - es-data-dev:/usr/share/elasticsearch/data # Correct named volume
+      - es-data-dev:/usr/share/elasticsearch/data
     ports:
-      - "9200:9200" # Correct port mapping
+      - "9200:9200"
     networks:
-      - microservices-network # Correct network
+      - microservices-network
     healthcheck:
-      # Increased tolerance: more time for curl, longer interval, more retries, start_period added
       test: ["CMD-SHELL", "curl -s --fail http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=10s || exit 1"]
-      interval: 15s    # Check less frequently during startup churn
-      timeout: 12s     # Increased overall timeout for the check command
-      retries: 6       # Allow one more retry
-      start_period: 45s # IMPORTANT: Give ES 45 seconds grace period after starting before first healthcheck failure marks it unhealthy
-                        # This helps significantly during docker compose watch restarts
+      interval: 15s
+      timeout: 12s
+      retries: 6
+      start_period: 45s
 
   consul:
     image: hashicorp/consul:1.18
@@ -113,13 +109,13 @@ services:
       consul:
         condition: service_healthy
       auth-service:
-        condition: service_started # Use started here as gateway does discovery
+        condition: service_started
       product-service:
         condition: service_started
       image-service:
         condition: service_started
       search-service:
-        condition: service_started # Wait for search to *start*, discovery handles availability
+        condition: service_started
       cart-service:
         condition: service_started
     environment:
@@ -238,7 +234,7 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      elasticsearch: # <<< Depends on ES being healthy
+      elasticsearch:
         condition: service_healthy
     networks:
       - microservices-network
@@ -247,7 +243,7 @@ services:
       CONSUL_AGENT_HOST: consul-agent
       SERVICE_NAME: search-service
       KAFKA_BROKERS: kafka-dev:9092
-      ELASTICSEARCH_NODE: http://elasticsearch-dev:9200 # Correct internal hostname
+      ELASTICSEARCH_NODE: http://elasticsearch-dev:9200
       NODE_ENV: development
     command: npm run dev
     develop:
@@ -266,7 +262,7 @@ services:
     depends_on:
       consul:
         condition: service_healthy
-      redis: # Depends on Redis being healthy
+      redis:
         condition: service_healthy
     networks:
       - microservices-network
@@ -275,7 +271,7 @@ services:
       CONSUL_AGENT_HOST: consul-agent
       SERVICE_NAME: cart-service
       NODE_ENV: development
-      REDIS_HOST: redis-dev # Correct internal hostname
+      REDIS_HOST: redis-dev
       REDIS_PORT: 6379
     command: npm run dev
     develop:
@@ -296,8 +292,11 @@ services:
         condition: service_healthy
       consul:
         condition: service_healthy
-      product-service: # depends on product service to adjust stock
+      product-service:
         condition: service_started
+      # --- FIX: ADDED KAFKA DEPENDENCY ---
+      kafka:
+        condition: service_healthy
     networks:
       - microservices-network
     environment:
@@ -306,6 +305,8 @@ services:
       CONSUL_AGENT_HOST: consul-agent
       SERVICE_NAME: order-service
       NODE_ENV: development
+      # --- FIX: ADDED KAFKA_BROKERS ENV VAR ---
+      KAFKA_BROKERS: kafka-dev:9092
     command: npm run dev
     develop:
       watch:
@@ -360,7 +361,7 @@ services:
     image: postgres:15-alpine
     container_name: order-db
     ports:
-      - "5436:5432" # Use a new host port
+      - "5436:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
