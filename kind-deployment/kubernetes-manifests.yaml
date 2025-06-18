@@ -741,19 +741,6 @@ spec:
       labels:
         app: search-service
     spec:
-      # Optional: Init Container to wait for Elasticsearch if in-app retry is insufficient
-      # initContainers:
-      # - name: wait-for-elasticsearch
-      #   image: busybox:1.36 # Small image with 'nc' (netcat)
-      #   command: ['sh', '-c']
-      #   args:
-      #     - |
-      #       echo "[InitContainer search-service] Waiting for elasticsearch-svc to be available..."
-      #       until nc -zv elasticsearch-svc 9200; do
-      #         echo "[InitContainer search-service] elasticsearch-svc not yet available, sleeping for 5s...";
-      #         sleep 5;
-      #       done;
-      #       echo "[InitContainer search-service] elasticsearch-svc is now available on port 9200."
       containers:
       - name: search-service
         image: ${IMAGE_PREFIX}/search-service:${IMAGE_TAG}
@@ -781,11 +768,11 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        readinessProbe: # Health check for this service based on its own /health endpoint
+        readinessProbe:
           httpGet:
-            path: /health # This uses the enhanced /health endpoint that checks ES
+            path: /health
             port: 3005
-          initialDelaySeconds: 45 # MODIFIED: Give it ample time after ES connection retries
+          initialDelaySeconds: 45
           periodSeconds: 15
           timeoutSeconds: 10
           failureThreshold: 3
@@ -837,7 +824,7 @@ spec:
         - name: NODE_ENV
           value: "development"
         - name: REDIS_HOST
-          value: "redis-svc" # Connect to internal Redis service name
+          value: "redis-svc"
         - name: REDIS_PORT
           value: "6379"
         - name: POD_IP
@@ -850,7 +837,7 @@ spec:
               fieldPath: metadata.name
         readinessProbe:
           httpGet:
-            path: /health # This /health endpoint internally checks Redis
+            path: /health
             port: 3006
           initialDelaySeconds: 30
           periodSeconds: 10
@@ -869,7 +856,7 @@ spec:
     targetPort: 3006
     nodePort: 30006
   type: NodePort
-
+---
 # --- Order DB (PostgreSQL) ---
 apiVersion: apps/v1
 kind: Deployment
@@ -963,6 +950,9 @@ spec:
           value: "consul-svc"
         - name: SERVICE_NAME
           value: "order-service"
+        # --- FIX: ADDED KAFKA_BROKERS ENV VAR ---
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"
         - name: NODE_ENV
           value: "development"
         - name: POD_IP
@@ -992,4 +982,4 @@ spec:
     port: 3007
     targetPort: 3007
     nodePort: 30007
-  type: NodePort-e
+  type: NodePort
