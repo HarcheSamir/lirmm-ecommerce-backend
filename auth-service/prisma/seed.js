@@ -77,12 +77,7 @@ async function main() {
     { name: 'Fatima Supervisor', email: 'user2@gmail.com', roleName: 'Supervisor', profileImage: 'https://randomuser.me/api/portraits/women/2.jpg' },
     { name: 'Youssef Support', email: 'user3@gmail.com', roleName: 'Support', profileImage: 'https://randomuser.me/api/portraits/men/3.jpg' },
     { name: 'Amina Auditor', email: 'user4@gmail.com', roleName: 'Auditor', profileImage: 'https://randomuser.me/api/portraits/women/4.jpg' },
-    // --- FIX: Assigning users to the new 'Customer' role ---
-    { name: 'Mehdi Customer', email: 'user5@gmail.com', roleName: 'Customer', profileImage: 'https://randomuser.me/api/portraits/men/5.jpg' },
-    { name: 'Leila Customer', email: 'user6@gmail.com', roleName: 'Customer', profileImage: 'https://randomuser.me/api/portraits/women/6.jpg' },
-    { name: 'Hakim Customer', email: 'user7@gmail.com', roleName: 'Customer', profileImage: 'https://randomuser.me/api/portraits/men/7.jpg', isActive: false },
     { name: 'Samira Supervisor', email: 'user8@gmail.com', roleName: 'Supervisor', profileImage: 'https://randomuser.me/api/portraits/women/8.jpg' },
-    { name: 'Ali Customer', email: 'user9@gmail.com', roleName: 'Customer', profileImage: 'https://randomuser.me/api/portraits/men/9.jpg' },
   ];
 
   for (const userData of usersToCreate) {

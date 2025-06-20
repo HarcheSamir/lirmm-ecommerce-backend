@@ -1,12 +1,12 @@
-// ===== FILE: auth-service/src/modules/auth/auth.controller.js =====
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const prisma = require('../../config/prisma');
-const  JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET;
+const { sendMessage } = require('../../kafka/producer');
 
 const register = async (req, res, next) => {
   try {
-    const { name, email, password, roleName = 'CLIENT', profileImage } = req.body; // <-- Allow profileImage on register
+    const { name, email, password, roleName = 'Customer', profileImage } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email, and password are required' });
     }
@@ -19,10 +19,47 @@ const register = async (req, res, next) => {
       return res.status(400).json({ message: `Role '${roleName}' does not exist.` });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await prisma.user.create({
+
+    const newUser = await prisma.user.create({
       data: { name, email, password: hashedPassword, roleId: role.id, profileImage },
     });
-    res.status(201).json({ message: 'User registered', userId: user.id });
+
+    // --- Send Kafka Event with Email ---
+    await sendMessage('USER_CREATED', {
+      id: newUser.id,
+      name: newUser.name,
+      email: newUser.email,
+      profileImage: newUser.profileImage
+    });
+    // --- End Kafka Event ---
+
+    const userForToken = await prisma.user.findUnique({
+      where: { id: newUser.id },
+      include: {
+        role: {
+          include: {
+            permissions: { include: { permission: true } },
+          },
+        },
+      },
+    });
+
+    const permissions = userForToken.role.permissions.map(
+      (rolePermission) => rolePermission.permission.name
+    );
+    const payload = {
+      id: userForToken.id,
+      email: userForToken.email,
+      name: userForToken.name,
+      profileImage: userForToken.profileImage,
+      role: userForToken.role.name,
+      permissions: permissions,
+    };
+
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' });
+    
+    res.status(201).json({ token });
+
   } catch (err) {
     next(err);
   }
@@ -64,7 +101,7 @@ const login = async (req, res, next) => {
       id: user.id,
       email: user.email,
       name: user.name,
-      profileImage: user.profileImage, // <-- ADDED
+      profileImage: user.profileImage,
       role: user.role.name,
       permissions: permissions,
     };
@@ -83,7 +120,7 @@ const me = async (req, res, next) => {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
-        id: true, name: true, email: true, profileImage: true, role: { select: { name: true } }, // <-- ADDED
+        id: true, name: true, email: true, profileImage: true, role: { select: { name: true } },
       }
     });
     if (!user) { return res.status(404).json({ message: 'User not found' }); }
@@ -110,7 +147,7 @@ const validateToken = async (req, res, next) => {
 
       const permissions = user.role.permissions.map(rp => rp.permission.name);
       const payload = {
-        id: user.id, email: user.email, name: user.name, profileImage: user.profileImage, role: user.role.name, permissions: permissions, // <-- ADDED
+        id: user.id, email: user.email, name: user.name, profileImage: user.profileImage, role: user.role.name, permissions: permissions,
       };
       res.json({ valid: true, user: payload });
     });

@@ -12,6 +12,13 @@ model Product {
   imageUrl String?
   @@map("denormalized_products")
 }
+model DenormalizedUser {
+  id           String  @id
+  name         String
+  profileImage String?
+  email        String
+  @@map("denormalized_users")
+}
 enum OrderStatus {
   PENDING
   PAID
@@ -28,7 +35,8 @@ model Order {
   id              String        @id @default(uuid())
   userId          String?
   guestEmail      String?
-  guestName       String? // <-- ADD THIS LINE
+  guestName       String?
+  phone           String?       // <-- ADD THIS LINE
   status          OrderStatus   @default(PENDING)
   paymentMethod   PaymentMethod
   totalAmount     Decimal       @db.Decimal(10, 2)
@@ -38,6 +46,7 @@ model Order {
   items           OrderItem[]
   @@index([userId])
   @@index([guestEmail])
+  @@index([phone])             // <-- ADD INDEX FOR PHONE
 }
 model OrderItem {
   id                 String  @id @default(uuid())

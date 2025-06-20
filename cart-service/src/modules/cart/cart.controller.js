@@ -11,9 +11,42 @@ const createError = (message, statusCode) => {
     return error;
 };
 
+// ====================================================================
+// NEW FUNCTION: To associate a cart with a user ID after login.
+// ====================================================================
+const associateCartWithUser = async (req, res, next) => {
+    try {
+        const { cartId, userId } = req.body;
+        if (!cartId || !userId) {
+            return next(createError('cartId and userId are required for association.', 400));
+        }
+
+        const cartKey = `${CART_PREFIX}${cartId}`;
+        const cartDataString = await redisClient.get(cartKey);
+
+        if (!cartDataString) {
+            // If the cart doesn't exist, it might have expired. It's safe to just return success.
+            // The frontend will create a new one on the next action.
+            return res.status(200).json({ message: 'Cart not found, no association needed.' });
+        }
+
+        const cart = JSON.parse(cartDataString);
+
+        // Update the userId and refresh the timestamp
+        cart.userId = userId;
+        cart.updatedAt = new Date().toISOString();
+
+        // Save the updated cart back to Redis, refreshing its TTL
+        await redisClient.set(cartKey, JSON.stringify(cart), 'EX', CART_TTL_SECONDS);
+
+        res.status(200).json(cart);
+
+    } catch (error) {
+        next(error);
+    }
+};
+
 // Create or get a cart. If cartId is provided and exists, it's returned.
-// If no cartId, a new one is created.
-// If cartId is provided but doesn't exist, it can optionally create one.
 const getOrCreateCart = async (req, res, next) => {
     try {
         let cartId = req.params.cartId || req.query.cartId;
@@ -27,31 +60,26 @@ const getOrCreateCart = async (req, res, next) => {
                 const cart = JSON.parse(cartDataString);
                 await redisClient.expire(cartKey, CART_TTL_SECONDS); // Refresh TTL
                 return res.status(200).json(cart);
-            } else {
-                 console.log(`Cart ID ${cartId} not found, will create a new one with this ID if possible, or generate a new one.`);
             }
         }
 
-        // If no cartId provided, or if the one provided was not found, create a new cart
-        const newCartId = cartId || uuidv4(); // Use provided ID if available and policy allows, else generate
+        const newCartId = cartId || uuidv4();
         const cartKey = `${CART_PREFIX}${newCartId}`;
-
         const newCart = {
             id: newCartId,
             userId: userId || null,
-            items: [], // Initialize with empty items array
+            items: [],
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
 
         await redisClient.set(cartKey, JSON.stringify(newCart), 'EX', CART_TTL_SECONDS);
-        res.status(201).json(newCart); // 201 for new cart, or 200 if it was retrieved
+        res.status(201).json(newCart);
 
     } catch (error) {
         next(error);
     }
 };
-
 
 const getCartById = async (req, res, next) => {
     try {
@@ -62,18 +90,18 @@ const getCartById = async (req, res, next) => {
 
         if (!cartDataString) {
             const newCart = {
-                id: cartId, // Use the requested ID
-                userId: req.body.userId || null, // Potentially passed if user just logged in
+                id: cartId,
+                userId: req.body.userId || null,
                 items: [],
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
             };
             await redisClient.set(cartKey, JSON.stringify(newCart), 'EX', CART_TTL_SECONDS);
-            return res.status(201).json(newCart); // 201 as it's newly created by this request
+            return res.status(201).json(newCart);
         }
 
         const cart = JSON.parse(cartDataString);
-        await redisClient.expire(cartKey, CART_TTL_SECONDS); // Refresh TTL on access
+        await redisClient.expire(cartKey, CART_TTL_SECONDS);
         res.status(200).json(cart);
     } catch (error) {
         next(error);
@@ -83,7 +111,6 @@ const getCartById = async (req, res, next) => {
 const addItemToCart = async (req, res, next) => {
     try {
         const { cartId } = req.params;
-        // *** CRITICAL FIX: Destructure 'attributes' from the request body ***
         const { productId, variantId, quantity, price, name, imageUrl, attributes } = req.body;
 
         if (!productId || !variantId || quantity === undefined || price === undefined) {
@@ -112,7 +139,6 @@ const addItemToCart = async (req, res, next) => {
             cart.items[existingItemIndex].price = parseFloat(price);
             if (name) cart.items[existingItemIndex].name = name;
             if (imageUrl) cart.items[existingItemIndex].imageUrl = imageUrl;
-            // *** Also update attributes on re-add ***
             if (attributes) cart.items[existingItemIndex].attributes = attributes;
         } else {
             cart.items.push({
@@ -123,7 +149,6 @@ const addItemToCart = async (req, res, next) => {
                 price: parseFloat(price),
                 name: name || 'Product Name Unavailable',
                 imageUrl: imageUrl || null,
-                // *** CRITICAL FIX: Store the attributes in the cart item ***
                 attributes: attributes || {},
                 addedAt: new Date().toISOString()
             });
@@ -245,4 +270,5 @@ module.exports = {
     removeItemFromCart,
     clearCart,
     deleteCart,
+    associateCartWithUser,
 };

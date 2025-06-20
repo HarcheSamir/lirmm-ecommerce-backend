@@ -142,6 +142,8 @@ services:
         condition: service_healthy
       consul:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     networks:
       - microservices-network
     environment:
@@ -150,6 +152,7 @@ services:
       JWT_SECRET: your-secret-key-for-docker-dev
       CONSUL_AGENT_HOST: consul-agent
       SERVICE_NAME: auth-service
+      KAFKA_BROKERS: kafka-dev:9092
       NODE_ENV: development
     command: npm run dev
     develop:
@@ -294,7 +297,6 @@ services:
         condition: service_healthy
       product-service:
         condition: service_started
-      # --- FIX: ADDED KAFKA DEPENDENCY ---
       kafka:
         condition: service_healthy
     networks:
@@ -305,7 +307,6 @@ services:
       CONSUL_AGENT_HOST: consul-agent
       SERVICE_NAME: order-service
       NODE_ENV: development
-      # --- FIX: ADDED KAFKA_BROKERS ENV VAR ---
       KAFKA_BROKERS: kafka-dev:9092
     command: npm run dev
     develop:

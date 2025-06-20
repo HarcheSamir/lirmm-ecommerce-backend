@@ -1,10 +1,10 @@
-// order-service/src/kafka/consumer.js
 const { Kafka, logLevel } = require('kafkajs');
 const prisma = require('../config/prisma');
 
 const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'kafka:9092').split(',');
 const SERVICE_NAME = process.env.SERVICE_NAME || 'order-service';
-const KAFKA_TOPIC = 'product_events';
+const PRODUCT_TOPIC = 'product_events';
+const AUTH_TOPIC = 'auth_events';
 
 const kafka = new Kafka({
     clientId: `${SERVICE_NAME}-consumer`,
@@ -15,65 +15,90 @@ const kafka = new Kafka({
 
 const consumer = kafka.consumer({ groupId: `${SERVICE_NAME}-group` });
 
-// --- Message Processing Logic ---
 const processMessage = async ({ topic, partition, message }) => {
     try {
         const event = JSON.parse(message.value.toString());
         const logId = event.payload?.id || 'N/A';
 
-        console.log(`Received event: Type [${event.type}] from [${event.sourceService}] for ID [${logId}]`);
+        console.log(`Received event: Type [${event.type}] from [${event.sourceService}] for ID [${logId}] on Topic [${topic}]`);
 
-        if (event.type === 'PRODUCT_CREATED' || event.type === 'PRODUCT_UPDATED') {
+        if (topic === PRODUCT_TOPIC) {
             const productData = event.payload;
             if (!productData || !productData.id) {
-                console.warn('Skipping event with missing product data or ID.');
+                console.warn('Skipping product event with missing data or ID.');
                 return;
             }
 
-            await prisma.product.upsert({
-                where: { id: productData.id },
-                update: {
-                    name: productData.name,
-                    sku: productData.sku,
-                    imageUrl: productData.primaryImageUrl,
-                },
-                create: {
-                    id: productData.id,
-                    name: productData.name,
-                    sku: productData.sku,
-                    imageUrl: productData.primaryImageUrl,
-                },
-            });
-            console.log(`Upserted denormalized product: ${productData.id}`);
-
-        } else if (event.type === 'PRODUCT_DELETED') {
-            const { id } = event.payload;
-            if (id) {
-                await prisma.product.delete({ where: { id } }).catch(() => console.log(`Product ${id} to delete was not in denormalized table. Ignoring.`));
-                console.log(`Deleted denormalized product: ${id}`);
+            if (event.type === 'PRODUCT_CREATED' || event.type === 'PRODUCT_UPDATED') {
+                await prisma.product.upsert({
+                    where: { id: productData.id },
+                    update: {
+                        name: productData.name,
+                        sku: productData.sku,
+                        imageUrl: productData.primaryImageUrl,
+                    },
+                    create: {
+                        id: productData.id,
+                        name: productData.name,
+                        sku: productData.sku,
+                        imageUrl: productData.primaryImageUrl,
+                    },
+                });
+                console.log(`Upserted denormalized product: ${productData.id}`);
+            } else if (event.type === 'PRODUCT_DELETED') {
+                const { id } = event.payload;
+                if (id) {
+                    await prisma.product.delete({ where: { id } }).catch(() => console.log(`Product ${id} to delete was not in denormalized table. Ignoring.`));
+                    console.log(`Deleted denormalized product: ${id}`);
+                }
             }
-        } else {
-            console.warn(`Received unhandled event type: ${event.type}. Ignoring.`);
         }
+
+        if (topic === AUTH_TOPIC) {
+            const userData = event.payload;
+            if (!userData || !userData.id) {
+                console.warn('Skipping auth event with missing user data or ID.');
+                return;
+            }
+
+            if (event.type === 'USER_CREATED' || event.type === 'USER_UPDATED') {
+                await prisma.denormalizedUser.upsert({
+                    where: { id: userData.id },
+                    update: {
+                        name: userData.name,
+                        email: userData.email,
+                        profileImage: userData.profileImage,
+                    },
+                    create: {
+                        id: userData.id,
+                        name: userData.name,
+                        email: userData.email,
+                        profileImage: userData.profileImage,
+                    },
+                });
+                console.log(`Upserted denormalized user: ${userData.id}`);
+            } else if (event.type === 'USER_DELETED') {
+                await prisma.denormalizedUser.delete({ where: { id: userData.id } }).catch(() => console.log(`User ${userData.id} to delete was not in denormalized table. Ignoring.`));
+                console.log(`Deleted denormalized user: ${userData.id}`);
+            }
+        }
+
     } catch (error) {
         console.error(`Error processing Kafka message: ${error.message}`, error);
     }
 };
 
-// --- Connection and Disconnection Functions ---
 const connectConsumer = async () => {
     try {
         await consumer.connect();
-        await consumer.subscribe({ topic: KAFKA_TOPIC, fromBeginning: true });
-        console.log(`Kafka consumer subscribed to topic: ${KAFKA_TOPIC}`);
+        await consumer.subscribe({ topics: [PRODUCT_TOPIC, AUTH_TOPIC], fromBeginning: true });
+        console.log(`Kafka consumer subscribed to topics: [${PRODUCT_TOPIC}, ${AUTH_TOPIC}]`);
 
-        await consumer.run({
-            eachMessage: processMessage,
-        });
+        await consumer.run({ eachMessage: processMessage });
         console.log('Kafka consumer is running...');
     } catch (error) {
         console.error('Failed to connect or run Kafka consumer:', error);
-        throw error; // Propagate error to fail service startup
+        throw error;
     }
 };
 

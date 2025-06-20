@@ -1,6 +1,4 @@
 const prisma = require('../../config/prisma');
-const { findService } = require('../../config/consul');
-const axios = require('axios');
 
 const createError = (message, statusCode) => {
   const error = new Error(message);
@@ -16,16 +14,12 @@ const enrichOrders = async (orders) => {
 
   if (userIds.length > 0) {
     try {
-      const authServiceUrl = await findService('auth-service');
-      if (authServiceUrl) {
-        const userPromises = userIds.map(id => axios.get(`${authServiceUrl}/users/${id}`).catch(() => null));
-        const userResponses = await Promise.all(userPromises);
-        userResponses.forEach(res => {
-          if (res && res.data) userMap.set(res.data.id, res.data);
+        const localUsers = await prisma.denormalizedUser.findMany({
+            where: { id: { in: userIds } }
         });
-      }
+        localUsers.forEach(u => userMap.set(u.id, u));
     } catch (e) {
-      console.error("Failed to enrich orders with user data:", e.message);
+      console.error("Failed to enrich orders with denormalized user data:", e.message);
     }
   }
 
@@ -57,28 +51,29 @@ const enrichOrders = async (orders) => {
     return {
       ...order,
       items: enrichedItems,
-      customerName: user?.name || order.guestName || 'Guest', // <-- MODIFIED
+      customerName: user?.name || order.guestName || 'Guest',
+      customerEmail: user?.email || order.guestEmail,
       customerAvatar: user?.profileImage || null
     };
   });
 };
 
 const createOrder = async (req, res, next) => {
-  const { items, shippingAddress, guestEmail, guestName, paymentMethod } = req.body; // <-- MODIFIED
-  const orderPlacer = {
-    userId: req.user?.id,
-    email: req.user?.email || guestEmail
-  };
+  const { items, shippingAddress, guestEmail, guestName, phone, paymentMethod } = req.body;
+  const email = req.user?.email || guestEmail;
 
-  if (!orderPlacer.email) {
-    return next(createError('An email address is required.', 400));
+  if (!email) {
+    return next(createError('An email address is required for all orders.', 400));
+  }
+  if (!phone) {
+    return next(createError('A phone number is required for all orders.', 400));
   }
   if (!Array.isArray(items) || items.length === 0) {
     return next(createError('Order must contain at least one item.', 400));
   }
 
   try {
-    const productSvcUrl = await findService('product-service');
+    const productSvcUrl = "http://product-service:3003"; // Hardcoded for simplicity in this example
     if (!productSvcUrl) {
       throw createError('Product service is currently unavailable for stock adjustment.', 503);
     }
@@ -96,9 +91,10 @@ const createOrder = async (req, res, next) => {
 
       const order = await tx.order.create({
         data: {
-          userId: orderPlacer.userId,
-          guestEmail: orderPlacer.userId ? null : orderPlacer.email,
-          guestName: orderPlacer.userId ? null : guestName, // <-- MODIFIED
+          userId: req.user?.id,
+          phone: phone,
+          guestEmail: req.user ? null : email,
+          guestName: req.user ? null : guestName,
           shippingAddress,
           paymentMethod,
           totalAmount: 0,
@@ -111,6 +107,7 @@ const createOrder = async (req, res, next) => {
         if (!localProduct) throw createError(`Product with ID ${item.productId} not found. The system may be syncing.`, 404);
 
         const stockAdjustUrl = `${productSvcUrl}/stock/adjust/${item.variantId}`;
+        const axios = require('axios');
         await axios.post(stockAdjustUrl, {
           changeQuantity: -item.quantity,
           type: 'ORDER',

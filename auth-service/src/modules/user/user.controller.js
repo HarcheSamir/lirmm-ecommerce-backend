@@ -1,13 +1,11 @@
-// ===== FILE: auth-service/src/modules/user/user.controller.js =====
-
 const prisma = require('../../config/prisma');
+const { sendMessage } = require('../../kafka/producer');
 
-// NEW: Define a more detailed user select object
 const userSelectDetailed = {
   id: true,
   name: true,
   email: true,
-  profileImage: true, // <-- ADDED
+  profileImage: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -31,10 +29,6 @@ const userSelectDetailed = {
   },
 };
 
-// ... ALL OTHER FUNCTIONS IN THIS FILE (getAllUsers, getUserById, etc.) REMAIN UNCHANGED
-// as they already use the `userSelectDetailed` object.
-// Providing the full file for completeness.
-
 const getAllUsers = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
@@ -45,13 +39,12 @@ const getAllUsers = async (req, res, next) => {
       prisma.user.findMany({
         skip,
         take: limit,
-        select: userSelectDetailed, // USE THE DETAILED SELECT
+        select: userSelectDetailed,
         orderBy: { createdAt: 'desc' },
       }),
       prisma.user.count(),
     ]);
 
-    // Post-process the data to flatten permissions for a cleaner API response
     const formattedUsers = users.map(user => ({
         ...user,
         role: {
@@ -79,13 +72,12 @@ const getUserById = async (req, res, next) => {
     const { id } = req.params;
     const user = await prisma.user.findUnique({
       where: { id: id },
-      select: userSelectDetailed, // USE THE DETAILED SELECT
+      select: userSelectDetailed,
     });
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Post-process the data to flatten permissions
     const formattedUser = {
         ...user,
         role: {
@@ -103,12 +95,13 @@ const getUserById = async (req, res, next) => {
 const updateUser = async (req, res, next) => {
   try {
     const { id: userIdToUpdate } = req.params;
-    const { name, roleId } = req.body;
+    const { name, roleId, profileImage } = req.body;
     const requestingUserId = req.user.id;
 
     const dataToUpdate = {};
     if (name) dataToUpdate.name = name;
     if (roleId) dataToUpdate.roleId = roleId;
+    if (profileImage) dataToUpdate.profileImage = profileImage;
 
     if (Object.keys(dataToUpdate).length === 0) {
       return res.status(400).json({ message: 'No fields to update provided (name, roleId).' });
@@ -133,10 +126,18 @@ const updateUser = async (req, res, next) => {
     const updatedUser = await prisma.user.update({
       where: { id: userIdToUpdate },
       data: dataToUpdate,
-      select: userSelectDetailed, // USE THE DETAILED SELECT
+      select: userSelectDetailed,
     });
 
-    // Post-process the data to flatten permissions
+    // --- Send Kafka Event with Email ---
+    await sendMessage('USER_UPDATED', {
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        profileImage: updatedUser.profileImage
+    });
+    // --- End Kafka Event ---
+
     const formattedUser = {
         ...updatedUser,
         role: {
@@ -178,6 +179,9 @@ const deactivateUser = async (req, res, next) => {
         }
 
         await prisma.user.update({ where: { id: userIdToDeactivate }, data: { isActive: false } });
+        
+        await sendMessage('USER_DELETED', { id: userIdToDeactivate });
+        
         res.status(204).send();
     } catch (err) {
         if (err.code === 'P2025') { return res.status(404).json({ message: 'User to deactivate not found.' }); }
@@ -189,8 +193,17 @@ const activateUser = async (req, res, next) => {
     try {
         const { id } = req.params;
         await prisma.user.update({ where: { id }, data: { isActive: true } });
-        // After activation, fetch the full details to return
         const user = await prisma.user.findUnique({ where: { id }, select: userSelectDetailed });
+
+        // --- Send Kafka Event with Email ---
+        await sendMessage('USER_UPDATED', {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            profileImage: user.profileImage
+        });
+        // --- End Kafka Event ---
+        
         const formattedUser = { ...user, role: { ...user.role, permissions: user.role.permissions.map(p => p.permission) }};
         res.json(formattedUser);
     } catch (err) {
