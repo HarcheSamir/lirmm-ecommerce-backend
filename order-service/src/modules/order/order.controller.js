@@ -57,14 +57,14 @@ const enrichOrders = async (orders) => {
     return {
       ...order,
       items: enrichedItems,
-      customerName: user?.name || 'Guest',
+      customerName: user?.name || order.guestName || 'Guest', // <-- MODIFIED
       customerAvatar: user?.profileImage || null
     };
   });
 };
 
 const createOrder = async (req, res, next) => {
-  const { items, shippingAddress, guestEmail, paymentMethod } = req.body;
+  const { items, shippingAddress, guestEmail, guestName, paymentMethod } = req.body; // <-- MODIFIED
   const orderPlacer = {
     userId: req.user?.id,
     email: req.user?.email || guestEmail
@@ -97,7 +97,8 @@ const createOrder = async (req, res, next) => {
       const order = await tx.order.create({
         data: {
           userId: orderPlacer.userId,
-          guestEmail: orderPlacer.email,
+          guestEmail: orderPlacer.userId ? null : orderPlacer.email,
+          guestName: orderPlacer.userId ? null : guestName, // <-- MODIFIED
           shippingAddress,
           paymentMethod,
           totalAmount: 0,

@@ -196,7 +196,7 @@ const getProducts = async (req, res, next) => {
                 take: limit,
                 orderBy,
                 include: {
-                    variants: { select: { id: true, attributes: true, price: true, stockQuantity: true } },
+                    variants: true,
                     categories: { select: { category: { select: { id: true, name: true, slug: true } } } },
                     // Option 1: Get all images ordered by order field
                     images: { orderBy: { order: 'asc' } }
