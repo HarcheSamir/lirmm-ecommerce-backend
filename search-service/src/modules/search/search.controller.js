@@ -1,122 +1,182 @@
-const { client: esClient, PRODUCT_INDEX } = require('../../config/elasticsearch'); // Use PRODUCT_INDEX
+const { client: esClient, PRODUCT_INDEX } = require('../../config/elasticsearch');
 
-// Renamed function to reflect searching products
 const searchProducts = async (req, res, next) => {
     try {
-        const { q, limit = 10, page = 1, category, isActive, minPrice, maxPrice /* Add other filters */ } = req.query;
-
-        // Require at least one query parameter or filter to initiate search
-        if (!q && !category && isActive === undefined && minPrice === undefined && maxPrice === undefined) {
-            return res.status(400).json({ message: 'Search query parameter "q" or other filter (category, isActive, price range) is required' });
-        }
+        const {
+            q,
+            category,
+            minPrice,
+            maxPrice,
+            inStock,
+            attributes,
+            page = 1,
+            limit = 24,
+            sortBy = '_score',
+            sortOrder = 'desc',
+        } = req.query;
 
         const size = parseInt(limit, 10);
         const from = (parseInt(page, 10) - 1) * size;
 
-        console.log(`Searching index "${PRODUCT_INDEX}" - q: "${q || '*'}", category: "${category || 'N/A'}", page: ${page}, limit: ${size}`);
+        const mustQueries = [];
+        const filterQueries = [];
 
-        // --- Build Elasticsearch Query ---
-        const mustQueries = []; // Conditions that MUST match (for scoring)
-        const filterQueries = []; // Conditions that MUST match (non-scoring, cached)
-
-        // Text search query (if 'q' is provided)
         if (q) {
             mustQueries.push({
                 multi_match: {
                     query: q,
-                    // Fields to search in (adjust fields and boosts '^' as needed)
                     fields: ['name^4', 'sku^3', 'description^1', 'category_names^2', 'variant_attributes_flat^1'],
-                    fuzziness: "AUTO", // Allows for some typos
-                    operator: "and" // Require all terms in 'q' to match in at least one field
+                    fuzziness: "AUTO",
+                    operator: "and"
                 },
             });
         }
 
-        // Filters (add conditions to filterQueries)
-        if (isActive !== undefined) {
-            filterQueries.push({
-                term: { isActive: isActive === 'true' } // Exact boolean match
-            });
-        }
-        if (category) { // Filter by category slug (using nested query)
+        if (inStock === 'true') {
             filterQueries.push({
                 nested: {
-                    path: "categories", // The nested field path
+                    path: 'variants',
                     query: {
-                        term: { "categories.slug": category } // Exact match on category slug
+                        range: { 'variants.stockQuantity': { gt: 0 } }
                     }
                 }
             });
         }
-         if (minPrice !== undefined || maxPrice !== undefined) { // Filter by variant price range (nested)
-             const rangeQuery = {};
-             if (minPrice !== undefined) rangeQuery.gte = parseFloat(minPrice); // Greater than or equal
-             if (maxPrice !== undefined) rangeQuery.lte = parseFloat(maxPrice); // Less than or equal
 
-             // Ensure rangeQuery is not empty if one limit is missing
-             if (Object.keys(rangeQuery).length > 0) {
+        if (category) {
+            filterQueries.push({
+                term: { "category_slugs": category }
+            });
+        }
+
+        if (minPrice !== undefined || maxPrice !== undefined) {
+            const rangeQuery = {};
+            if (minPrice !== undefined) rangeQuery.gte = parseFloat(minPrice);
+            if (maxPrice !== undefined) rangeQuery.lte = parseFloat(maxPrice);
+
+            if (Object.keys(rangeQuery).length > 0) {
                 filterQueries.push({
                     nested: {
-                         path: "variants", // The nested field path
-                         query: {
-                             range: { "variants.price": rangeQuery } // Range query on variant price
-                         }
+                        path: "variants",
+                        query: {
+                            range: { "variants.price": rangeQuery }
+                        }
                     }
                 });
-             } else {
-                 console.warn("Price range filter specified but minPrice/maxPrice resulted in empty range.");
-             }
-         }
-         // Add more filters here (e.g., specific variant attributes like color/size)
-         // Example: Filter by color attribute within variants
-         // if (req.query.color) {
-         //    filterQueries.push({
-         //       nested: {
-         //          path: "variants",
-         //          query: { term: { "variants.attributes.color.keyword": req.query.color } } // Requires explicit mapping for attributes.color.keyword
-         //       }
-         //    })
-         // }
+            }
+        }
 
-        // Combine text query and filters using a bool query
+        if (attributes && typeof attributes === 'object') {
+            const attributeFilters = Object.entries(attributes).map(([key, value]) => {
+                const values = Array.isArray(value) ? value : [value];
+                return {
+                    bool: {
+                        should: values.map(v => ({
+                            term: {
+                                variant_attributes_flat: `${key}:${v}`
+                            }
+                        })),
+                        minimum_should_match: 1
+                    }
+                };
+            });
+            if (attributeFilters.length > 0) {
+                filterQueries.push(...attributeFilters);
+            }
+        }
+
         const esQuery = {
             bool: {
-                // Use must if 'q' exists, otherwise match all (filtered results)
                 must: mustQueries.length > 0 ? mustQueries : { match_all: {} },
-                filter: filterQueries // Apply all non-scoring filters
+                filter: filterQueries
             }
         };
-        // --- End Build Elasticsearch Query ---
+
+        const sort = [];
+        if (sortBy === 'price') {
+             sort.push({ 'variants.price': { order: sortOrder, nested: { path: 'variants' } } });
+        } else if (sortBy === 'createdAt') {
+             sort.push({ 'createdAt': { order: sortOrder } });
+        } else {
+             sort.push({ [sortBy]: { order: sortOrder } });
+        }
 
 
-        // Execute the search
         const searchResponse = await esClient.search({
-            index: PRODUCT_INDEX, // Target the products index
+            index: PRODUCT_INDEX,
             from: from,
             size: size,
             body: {
                 query: esQuery,
-                 // Add sorting, aggregations (facets) here if needed
-                // sort: [ { "updatedAt": { "order": "desc" } } ],
-                // aggs: { ... }
+                sort: sort,
+                aggs: {
+                    categories: {
+                        terms: { field: "category_slugs", size: 50 }
+                    },
+                    attributes: {
+                        terms: { field: "variant_attributes_flat", size: 100 }
+                    },
+                    price_ranges: {
+                        nested: {
+                            path: "variants"
+                        },
+                        aggs: {
+                            prices: {
+                                range: {
+                                    field: "variants.price",
+                                    ranges: [
+                                        { to: 50.0 },
+                                        { from: 50.0, to: 100.0 },
+                                        { from: 100.0, to: 200.0 },
+                                        { from: 200.0, to: 500.0 },
+                                        { from: 500.0 }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
             },
         });
 
-        // Basic validation of response structure
         if (!searchResponse || !searchResponse.hits) {
             console.error('Elasticsearch search response is missing expected "hits" property:', searchResponse);
-             if (searchResponse?.error) {
-                 console.error('Elasticsearch reported an error within the response:', searchResponse.error);
-                 throw new Error(`Elasticsearch error: ${searchResponse.error.type || 'Unknown'} - ${searchResponse.error.reason || 'Unknown'}`);
-             }
             throw new Error('Invalid response structure from Elasticsearch');
         }
 
-        // Extract total hits and results
-        const totalHits = typeof searchResponse.hits.total === 'object' ? searchResponse.hits.total.value : searchResponse.hits.total; // Handle ES version differences
-        const results = searchResponse.hits.hits.map(hit => hit._source); // Get the actual product documents
+        const totalHits = typeof searchResponse.hits.total === 'object' ? searchResponse.hits.total.value : searchResponse.hits.total;
+        const results = searchResponse.hits.hits.map(hit => hit._source);
 
-        // Send response
+        const parseFacets = (aggregations) => {
+            const facets = {};
+            if (aggregations.categories?.buckets) {
+                facets.categories = aggregations.categories.buckets.map(bucket => ({
+                    slug: bucket.key,
+                    count: bucket.doc_count
+                }));
+            }
+            if (aggregations.attributes?.buckets) {
+                const attrs = {};
+                aggregations.attributes.buckets.forEach(bucket => {
+                    const [key, value] = bucket.key.split(':', 2);
+                    if (!attrs[key]) {
+                        attrs[key] = { name: key, options: [] };
+                    }
+                    attrs[key].options.push({ value: value, count: bucket.doc_count });
+                });
+                facets.attributes = Object.values(attrs);
+            }
+            if (aggregations.price_ranges?.prices?.buckets) {
+                facets.price_ranges = aggregations.price_ranges.prices.buckets.map(bucket => ({
+                    key: bucket.key,
+                    from: bucket.from,
+                    to: bucket.to,
+                    count: bucket.doc_count
+                })).filter(b => b.count > 0);
+            }
+            return facets;
+        };
+
         res.json({
             data: results,
             pagination: {
@@ -125,24 +185,19 @@ const searchProducts = async (req, res, next) => {
                 limit: size,
                 totalPages: Math.ceil(totalHits / size),
             },
-            // Include aggregation results here if aggs were used
-            // facets: searchResponse.aggregations
+            facets: parseFacets(searchResponse.aggregations)
         });
 
     } catch (err) {
         console.error("Error during product search execution:", err.message);
-        if (err.meta && err.meta.body) { // Log ES error details if available
+        if (err.meta && err.meta.body) {
             console.error("Elasticsearch Client Error Body:", JSON.stringify(err.meta.body, null, 2));
         }
-        console.error("Stack Trace:", err.stack);
-
-        // Determine status code from ES error or default to 500
         const statusCode = (err.meta && err.meta.statusCode) ? err.meta.statusCode : 500;
-        // Create a generic error to send to the client
         const clientError = new Error('An error occurred while searching for products.');
         clientError.statusCode = statusCode;
-        next(clientError); // Pass to global error handler
+        next(clientError);
     }
 };
 
-module.exports = { searchProducts }; // Export the renamed function
+module.exports = { searchProducts };

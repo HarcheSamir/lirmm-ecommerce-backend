@@ -3,6 +3,7 @@
 
 const prisma = require('../../config/prisma');
 const { sendMessage } = require('../../kafka/producer');
+const { categories } = require('../../utils/seed')
 
 // Helper function to build category tree
 const buildTree = (categories, parentId = null) => {
@@ -76,7 +77,7 @@ const createCategory = async (req, res, next) => {
 // Create many categories
 const createManyCategories = async (req, res, next) => {
     try {
-        const categoriesData = req.body;
+        const categoriesData = categories;
         if (!Array.isArray(categoriesData) || categoriesData.length === 0) {
             return res.status(400).json({ message: 'Request body must be a non-empty array of category objects.' });
         }

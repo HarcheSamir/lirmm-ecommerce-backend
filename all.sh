@@ -3,6 +3,7 @@ tree -I "node_modules"
 find . -type f \
   \( \
     -path "*/auth-service/*" -o \
+    -path "*/search-service/*" -o \
     -path "*/product-service/*" -o \
     -path "*/cart-service/*" -o \
     -path "*/order-service/*" \

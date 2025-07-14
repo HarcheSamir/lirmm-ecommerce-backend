@@ -1,10 +1,6 @@
-// product-service/src/modules/product/product.controller.js
-// --- COMPLETE AND UNABRIDGED FILE ---
-
 const prisma = require('../../config/prisma');
 const { sendMessage } = require('../../kafka/producer');
-
-// --- Helper Functions ---
+const { products } = require('../../utils/seed')
 
 const fetchAndFormatProductForKafka = async (productId) => {
     const product = await prisma.product.findUnique({
@@ -18,30 +14,29 @@ const fetchAndFormatProductForKafka = async (productId) => {
     if (!product) { console.warn(`[Kafka Helper] Product ${productId} not found.`); return null; }
     const categories = product.categories || []; const variants = product.variants || []; const images = product.images || [];
     const category_names = categories.map(pc => pc.category?.name).filter(Boolean); const category_slugs = categories.map(pc => pc.category?.slug).filter(Boolean);
-    const primaryImage = images.find(img => img.isPrimary === true) || images[0];
+    
     const kafkaPayload = {
         id: product.id, sku: product.sku, name: product.name, description: product.description, isActive: product.isActive, createdAt: product.createdAt, updatedAt: product.updatedAt,
         category_names: category_names, category_slugs: category_slugs,
         variants: variants.map(v => ({ id: v.id, attributes: v.attributes || {}, price: v.price, stockQuantity: v.stockQuantity })),
         variant_attributes_flat: variants.flatMap(v => Object.entries(v.attributes || {}).map(([key, value]) => `${key}:${value}`)).filter((v, i, a) => a.indexOf(v) === i),
-        primaryImageUrl: primaryImage?.imageUrl || null,
+        images: images.map(img => ({
+            id: img.id,
+            imageUrl: img.imageUrl,
+            altText: img.altText,
+            isPrimary: img.isPrimary,
+            order: img.order
+        })),
     };
     return kafkaPayload;
 };
 
-/**
- * NEW, SIMPLE HELPER: Validates that all provided category IDs are leaf categories.
- * @param {object} tx - The Prisma transaction client.
- * @param {string[]} categoryIds - An array of category IDs to validate.
- */
 const validateLeafCategories = async (tx, categoryIds) => {
     if (!categoryIds || categoryIds.length === 0) return;
-
     const categories = await tx.category.findMany({
         where: { id: { in: categoryIds } },
         include: { _count: { select: { children: true } } }
     });
-
     const nonLeafCategories = categories.filter(c => c._count.children > 0);
     if (nonLeafCategories.length > 0) {
         const invalidNames = nonLeafCategories.map(c => c.name).join(', ');
@@ -49,50 +44,40 @@ const validateLeafCategories = async (tx, categoryIds) => {
     }
 };
 
-// --- End Helper Functions ---
-
-
 const createManyProducts = async (req, res, next) => {
     try {
-        const productsData = req.body;
+        const productsData = products;
         if (!Array.isArray(productsData) || productsData.length === 0) {
             return res.status(400).json({ message: 'Request body must be a non-empty array of product objects.' });
         }
         if (productsData.find(p => !p.sku || !p.name)) {
             return res.status(400).json({ message: `All products in the array must have 'sku' and 'name'.` });
         }
-
         let createdProductSummaries = [];
         await prisma.$transaction(async (tx) => {
             for (const productData of productsData) {
-                const { sku, name, description, isActive, variants: inputVariants, categoryIds, categorySlugs, images: inputImages } = productData;
-
+                const { sku, name, description, isActive, variants: inputVariants, categoryIds, categorySlugs, images: inputImages }= productData;
                 let finalCategoryIds = categoryIds || [];
                 if (categorySlugs && categorySlugs.length > 0) {
-                    const foundCategories = await tx.category.findMany({ where: { slug: { in: categorySlugs } }, select: { id: true, slug: true } });
+                    const foundCategories = await tx.category.findMany({ where: { slug: { in: categorySlugs } }, select: { id: true,slug: true } });
                     if (foundCategories.length !== categorySlugs.length) {
                         const notFoundSlugs = categorySlugs.filter(slug => !foundCategories.find(cat => cat.slug === slug));
                         throw { statusCode: 400, message: `The following category slugs do not exist: ${notFoundSlugs.join(', ')}` };
                     }
                     finalCategoryIds = [...new Set([...finalCategoryIds, ...foundCategories.map(cat => cat.id)])];
                 }
-
                 await validateLeafCategories(tx, finalCategoryIds);
-
                 const newProduct = await tx.product.create({ data: { sku, name, description, isActive } });
                 createdProductSummaries.push({ id: newProduct.id, sku: newProduct.sku });
-
                 if (finalCategoryIds.length > 0) {
                     await tx.productCategory.createMany({ data: finalCategoryIds.map(catId => ({ productId: newProduct.id, categoryId: catId })), skipDuplicates: true });
                 }
-
                 if (inputVariants && inputVariants.length > 0) {
                     const createdVariants = await Promise.all(
                         inputVariants.map(variant => tx.variant.create({
-                            data: { productId: newProduct.id, attributes: variant.attributes || {}, price: variant.price, costPrice: variant.costPrice, stockQuantity: 0, lowStockThreshold: variant.lowStockThreshold, }
+                            data: { productId: newProduct.id, attributes: variant.attributes || {}, price: variant.price, costPrice:variant.costPrice, stockQuantity: 0, lowStockThreshold: variant.lowStockThreshold, }
                         }))
                     );
-
                     const initialStockMovements = [];
                     for (let i = 0; i < inputVariants.length; i++) {
                         if (inputVariants[i].initialStockQuantity && inputVariants[i].initialStockQuantity > 0) {
@@ -104,13 +89,11 @@ const createManyProducts = async (req, res, next) => {
                         await tx.stockMovement.createMany({ data: initialStockMovements });
                     }
                 }
-
                 if (inputImages && inputImages.length > 0) {
                     await tx.productImage.createMany({ data: inputImages.map(img => ({ productId: newProduct.id, imageUrl: img.imageUrl, altText: img.altText, isPrimary: img.isPrimary || false, order: img.order })) });
                 }
             }
         });
-
         if (createdProductSummaries.length > 0) {
             for (const summary of createdProductSummaries) {
                 const kafkaPayload = await fetchAndFormatProductForKafka(summary.id);
@@ -130,12 +113,9 @@ const createProduct = async (req, res, next) => {
     try {
         const { sku, name, description, isActive, variants: inputVariants, categoryIds, images: inputImages } = req.body;
         if (!sku || !name) return res.status(400).json({ message: 'SKU and Name are required' });
-
         const newProduct = await prisma.$transaction(async (tx) => {
             await validateLeafCategories(tx, categoryIds);
-
             const product = await tx.product.create({ data: { sku, name, description, isActive } });
-
             if (inputVariants && inputVariants.length > 0) {
                 const createdVariants = await Promise.all(inputVariants.map(variant => tx.variant.create({ data: { productId: product.id, attributes: variant.attributes || {}, price: variant.price, costPrice: variant.costPrice, stockQuantity: 0, lowStockThreshold: variant.lowStockThreshold } })));
                 const initialStockMovements = [];
@@ -157,12 +137,10 @@ const createProduct = async (req, res, next) => {
             }
             return product;
         });
-
         const kafkaPayload = await fetchAndFormatProductForKafka(newProduct.id);
         if (kafkaPayload) {
             await sendMessage('PRODUCT_CREATED', kafkaPayload, newProduct.id);
         }
-
         const fullProductResponse = await prisma.product.findUnique({ where: { id: newProduct.id }, include: { variants: true, categories: { include: { category: true } }, images: true } });
         if (!fullProductResponse) {
              return res.status(404).json({ message: 'Product created but could not be retrieved.' });
@@ -180,15 +158,62 @@ const getProducts = async (req, res, next) => {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const skip = (page - 1) * limit;
-        const { categorySlug, sortBy = 'createdAt', sortOrder = 'desc', isActive } = req.query;
-        const where = {};
+
+        const { categorySlug, sortBy = 'createdAt', sortOrder = 'desc', isActive, q, minPrice, maxPrice, inStock, attributes } = req.query;
+
+        const where = { AND: [] };
+
+        if (q) {
+            where.AND.push({
+                OR: [
+                    { name: { contains: q, mode: 'insensitive' } },
+                    { sku: { contains: q, mode: 'insensitive' } },
+                    { description: { contains: q, mode: 'insensitive' } }
+                ]
+            });
+        }
+
         if (categorySlug) {
-            where.categories = { some: { category: { slug: categorySlug } } };
+            where.AND.push({ categories: { some: { category: { slug: categorySlug } } } });
         }
+
         if (isActive !== undefined) {
-            where.isActive = isActive === 'true';
+            where.AND.push({ isActive: isActive === 'true' });
         }
+
+        const priceFilter = {};
+        if (minPrice) priceFilter.gte = parseFloat(minPrice);
+        if (maxPrice) priceFilter.lte = parseFloat(maxPrice);
+        if (Object.keys(priceFilter).length > 0) {
+            where.AND.push({ variants: { some: { price: priceFilter } } });
+        }
+
+        if (inStock === 'true') {
+            where.AND.push({ variants: { some: { stockQuantity: { gt: 0 } } } });
+        }
+
+        if (attributes && typeof attributes === 'object') {
+            Object.entries(attributes).forEach(([key, value]) => {
+                const values = Array.isArray(value) ? value : [value];
+                where.AND.push({
+                    variants: {
+                        some: {
+                            attributes: {
+                                path: [key],
+                                in: values
+                            }
+                        }
+                    }
+                });
+            });
+        }
+        
+        if (where.AND.length === 0) {
+            delete where.AND;
+        }
+
         const orderBy = { [sortBy]: sortOrder };
+
         const [products, total] = await Promise.all([
             prisma.product.findMany({
                 where,
@@ -198,18 +223,12 @@ const getProducts = async (req, res, next) => {
                 include: {
                     variants: true,
                     categories: { select: { category: { select: { id: true, name: true, slug: true } } } },
-                    // Option 1: Get all images ordered by order field
                     images: { orderBy: { order: 'asc' } }
-                    
-                    // Option 2: If you only want primary images but all of them
-                    // images: { where: { isPrimary: true }, orderBy: { order: 'asc' } }
-                    
-                    // Option 3: If you want just the first image regardless of primary status
-                    // images: { take: 1, orderBy: { order: 'asc' } }
                 }
             }),
             prisma.product.count({ where }),
         ]);
+
         res.json({
             data: products,
             pagination: {
@@ -295,21 +314,17 @@ const addCategoriesToProduct = async (req, res, next) => {
         if (!Array.isArray(categoryIds) || categoryIds.length === 0) {
             return res.status(400).json({ message: 'categoryIds must be a non-empty array.' });
         }
-
         await prisma.$transaction(async (tx) => {
             const productExists = await tx.product.findUnique({ where: { id }, select: { id: true } });
             if (!productExists) {
                 throw { statusCode: 404, message: 'Product not found' };
             }
-
             await validateLeafCategories(tx, categoryIds);
-
             await tx.productCategory.createMany({
                 data: categoryIds.map(catId => ({ productId: id, categoryId: catId })),
                 skipDuplicates: true
             });
         });
-
         const kafkaPayload = await fetchAndFormatProductForKafka(id);
         if (kafkaPayload) {
             await sendMessage('PRODUCT_UPDATED', kafkaPayload, id);
@@ -351,7 +366,6 @@ const addImagesToProduct = async (req, res, next) => {
         if (!Array.isArray(images) || images.length === 0) {
             return res.status(400).json({ message: 'Request body must be a non-empty array of image objects.' });
         }
-        
         let imageAdded = false;
         await prisma.$transaction(async (tx) => {
             const productExists = await tx.product.findUnique({ where: { id }, select: { id: true } });
@@ -366,7 +380,6 @@ const addImagesToProduct = async (req, res, next) => {
             const result = await tx.productImage.createMany({ data: imageData });
             imageAdded = result.count > 0;
         });
-
         if (imageAdded) {
             const kafkaPayload = await fetchAndFormatProductForKafka(id);
             if (kafkaPayload) {
@@ -401,7 +414,6 @@ const removeImagesFromProduct = async (req, res, next) => {
         next(err);
     }
 };
-
 
 module.exports = {
     createManyProducts,
