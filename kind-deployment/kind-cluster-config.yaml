@@ -9,42 +9,48 @@ nodes:
       kubeletExtraArgs:
         node-labels: "ingress-ready=true"
   extraPortMappings:
-  # <-- MODIFIED: Primary entry point is now the Istio Ingress Gateway -->
-  # This maps host port 13000 to the Istio Ingress Gateway's HTTP port (80)
-  - containerPort: 80
-    hostPort: 13000
-    protocol: TCP
-
-  # <-- INFRASTRUCTURE PORTS: Kept for direct development access -->
-  # Kafka (External Listener) - Maps to the service's defined NodePort
   - containerPort: 30902
     hostPort: 39092
     protocol: TCP
-  # Elasticsearch API - Maps to the service's defined NodePort
   - containerPort: 32200
     hostPort: 19200
     protocol: TCP
-  # Consul UI/API - Maps to the service's defined NodePort
   - containerPort: 32500
     hostPort: 18500
     protocol: TCP
-  # Redis - Maps to the service's defined NodePort
   - containerPort: 32379
     hostPort: 19379
     protocol: TCP
-  # Auth DB (PostgreSQL) - Maps to the service's defined NodePort
+  - containerPort: 30000
+    hostPort: 13000
+    protocol: TCP
+  - containerPort: 30001
+    hostPort: 13001
+    protocol: TCP
+  - containerPort: 30003
+    hostPort: 13003
+    protocol: TCP
+  - containerPort: 30004
+    hostPort: 13004
+    protocol: TCP
+  - containerPort: 30005
+    hostPort: 13005
+    protocol: TCP
+  - containerPort: 30006
+    hostPort: 13006
+    protocol: TCP
+  - containerPort: 30007
+    hostPort: 13007
+    protocol: TCP
   - containerPort: 30434
     hostPort: 15434
     protocol: TCP
-  # Product DB (PostgreSQL) - Maps to the service's defined NodePort
   - containerPort: 30435
     hostPort: 15435
     protocol: TCP
-  # Order DB (PostgreSQL) - Maps to the service's defined NodePort
   - containerPort: 30436
     hostPort: 15436
     protocol: TCP
-  # Review DB (PostgreSQL) - Maps to the service's defined NodePort
   - containerPort: 30437
     hostPort: 15437
     protocol: TCP

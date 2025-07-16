@@ -1,105 +1,141 @@
+// src/config/consul.js (Universal Template for ALL services - CORRECTED findService return)
 const Consul = require('consul');
-const os = require('os');
 
-// --- Environment-based Configuration ---
+// Read configuration from environment variables
 const CONSUL_AGENT_HOST = process.env.CONSUL_AGENT_HOST;
-const SERVICE_NAME = process.env.SERVICE_NAME;
-const SERVICE_PORT = parseInt(process.env.PORT, 10);
+const SERVICE_NAME = process.env.SERVICE_NAME; // e.g., 'auth-service'
+const SERVICE_PORT = parseInt(process.env.PORT, 10); // e.g., 3001
+
+// ---- Use POD_IP and POD_HOSTNAME from environment variables (injected by K8s Downward API) ----
 const POD_IP = process.env.POD_IP;
-const POD_HOSTNAME = process.env.POD_HOSTNAME;
-const IS_IN_KUBERNETES = !!process.env.KUBERNETES_SERVICE_HOST; // A more reliable K8s check
+const POD_HOSTNAME = process.env.POD_HOSTNAME; // This will be the K8s pod name like 'auth-service-xxxx-yyyyy'
 
-// --- Determine Service ID, Registration Address, and Health Check Address ---
-let serviceAddressForRegistration;
-let healthCheckAddress;
-let serviceId;
+// Construct a unique service ID for Consul. Using POD_HOSTNAME ensures uniqueness across pod restarts.
+const SERVICE_ID = `${SERVICE_NAME}-${POD_HOSTNAME || require('os').hostname()}`; // Fallback to os.hostname() if POD_HOSTNAME is not set
 
-if (IS_IN_KUBERNETES) {
-    // In K8s: Register with the Pod IP. Health check from the agent to the pod must use the IP.
-    // However, with Istio, the most reliable health check is via localhost from the sidecar.
-    serviceAddressForRegistration = POD_IP;
-    healthCheckAddress = 'localhost'; // The Istio proxy intercepts this correctly.
-    serviceId = `${SERVICE_NAME}-${POD_HOSTNAME || os.hostname()}`;
-} else {
-    // In Docker Compose: Register with the service name. Health check from the Consul agent
-    // must also use the service name, which Docker DNS will resolve.
-    serviceAddressForRegistration = SERVICE_NAME;
-    healthCheckAddress = SERVICE_NAME;
-    serviceId = `${SERVICE_NAME}-${os.hostname()}`;
-}
-
-// --- Validation ---
+// Validate essential environment variables
 if (!SERVICE_NAME || !SERVICE_PORT || !CONSUL_AGENT_HOST) {
-    console.error(`[Consul] FATAL: Missing required environment variables.`);
-    process.exit(1);
-}
-if (IS_IN_KUBERNETES && !POD_IP) {
-    console.error(`[Consul] FATAL: In Kubernetes but POD_IP is not set. Exiting.`);
-    process.exit(1);
+    console.error(`[Consul Registration] FATAL: Missing SERVICE_NAME (${SERVICE_NAME}), PORT (${SERVICE_PORT}), or CONSUL_AGENT_HOST(${CONSUL_AGENT_HOST}). Cannot register with Consul.`);
+    process.exit(1); // Critical failure
 }
 
-const consul = new Consul({ host: CONSUL_AGENT_HOST, port: 8500, promisify: true });
+// Check for POD_IP in Kubernetes environments, warn if not found (outside of tests)
+if (!POD_IP && process.env.NODE_ENV !== 'test' && CONSUL_AGENT_HOST.includes('svc')) { // Check if host name likely indicates K8s service name
+    console.warn(`[Consul Registration] CRITICAL WARNING for ${SERVICE_NAME}: POD_IP environment variable not found. Consul health checks will likely FAIL in Kubernetes.`);
+}
 
-const registerService = async () => {
+const consul = new Consul({
+    host: CONSUL_AGENT_HOST,
+    port: 8500, // Standard Consul HTTP port
+    promisify: true, // Use promises for async operations
+});
+
+// --- MODIFIED registerService function with Retry ---
+const registerService = async (maxRetries = 5, retryDelayMs = 3000) => {
+    let effectiveAddressForRegistration;
+    let effectiveHealthCheckHttpUrl;
+
+    if (POD_IP) { // KUBERNETES Environment (POD_IP is available)
+        effectiveAddressForRegistration = POD_IP;
+        effectiveHealthCheckHttpUrl = `http://${POD_IP}:${SERVICE_PORT}/health`;
+    } else { // LOCAL Docker Compose or Test Environment (POD_IP is NOT available)
+        const localHostname = require('os').hostname();
+        effectiveAddressForRegistration = localHostname;
+        effectiveHealthCheckHttpUrl = `http://${localHostname}:${SERVICE_PORT}/health`;
+        if (process.env.NODE_ENV !== 'test') {
+            console.warn(`[Consul Registration] ${SERVICE_NAME}: POD_IP not found. Using hostname '${localHostname}'...`); // Shortened log
+        }
+    }
+
     const serviceDefinition = {
         name: SERVICE_NAME,
-        id: serviceId,
-        address: serviceAddressForRegistration,
+        id: SERVICE_ID,
+        address: effectiveAddressForRegistration,
         port: SERVICE_PORT,
-        tags: [SERVICE_NAME],
+        tags: [SERVICE_NAME, `env:${process.env.NODE_ENV || 'unknown'}`],
         check: {
-            // Use the correctly determined address for the health check
-            http: `http://${healthCheckAddress}:${SERVICE_PORT}/health`,
-            interval: '15s',
+            http: effectiveHealthCheckHttpUrl,
+            interval: '10s',
             timeout: '5s',
-            deregistercriticalafter: '1m',
+            deregistercriticalafter: '30s',
+            status: 'passing',
         },
     };
 
-    try {
-        await consul.agent.service.register(serviceDefinition);
-        console.log(`[Consul] Service ${serviceId} registered successfully.`);
-    } catch (err) {
-        console.error(`[Consul] Failed to register service ${serviceId}:`, err);
+    // --- Retry Loop ---
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            console.log(`[Consul Registration Attempt ${attempt}/${maxRetries}] ${SERVICE_NAME} (ID: ${SERVICE_ID}): Attempting to register with Consul at ${CONSUL_AGENT_HOST}...`);
+            await consul.agent.service.register(serviceDefinition);
+            console.log(`[Consul Registration] ${SERVICE_NAME} (ID: ${SERVICE_ID}): Registered successfully with Consul on attempt ${attempt}.`);
+            return; // Exit function on successful registration
+        } catch (error) {
+            console.error(`[Consul Registration Attempt ${attempt}/${maxRetries}] ${SERVICE_NAME} (ID: ${SERVICE_ID}): FAILED to register:`, error.message, error.statusCode || '');
+            if (attempt === maxRetries) {
+                console.error(`[Consul Registration] ${SERVICE_NAME}: All registration attempts failed. The service WILL LIKELY NOT BE DISCOVERABLE.`);
+            } else {
+                console.log(`[Consul Registration] Retrying in ${retryDelayMs / 1000} seconds...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelayMs)); // Wait before retrying
+            }
+        }
     }
-};
+}; // --- End MODIFIED registerService function ---
 
-const deregisterService = async (signal) => {
-    console.log(`[Consul] Received ${signal}. Deregistering ${serviceId}...`);
+// --- deregisterService Function (Remains the same) ---
+const deregisterService = async (signal = 'UNKNOWN') => {
+    console.log(`[Consul Deregistration] ${SERVICE_NAME} (ID: ${SERVICE_ID}): Received ${signal}. Starting deregistration from Consul...`);
     try {
-        await consul.agent.service.deregister(serviceId);
-        console.log(`[Consul] Service ${serviceId} deregistered.`);
-    } catch (err) {
-        console.error(`[Consul] Failed to deregister ${serviceId}:`, err.message);
+        if (consul && consul.agent && consul.agent.service && typeof consul.agent.service.deregister === 'function') {
+            await consul.agent.service.deregister(SERVICE_ID);
+            console.log(`[Consul Deregistration] ${SERVICE_NAME} (ID: ${SERVICE_ID}): Deregistered successfully from Consul.`);
+        } else {
+            console.warn(`[Consul Deregistration] ${SERVICE_NAME} (ID: ${SERVICE_ID}): Consul client or agent.service not available or deregister function missing. Skipping Consul deregister call.`);
+        }
+    } catch (error) {
+        console.error(`[Consul Deregistration] ${SERVICE_NAME} (ID: ${SERVICE_ID}): FAILED to deregister from Consul:`, error.message);
     } finally {
+        console.log(`[Consul Deregistration] ${SERVICE_NAME} (ID: ${SERVICE_ID}): Process exiting now after deregistration attempt.`);
         process.exit(0);
     }
 };
 
+// Graceful shutdown: Handle SIGINT (Ctrl+C) and SIGTERM (from K8s/Docker stop)
 process.on('SIGINT', () => deregisterService('SIGINT'));
 process.on('SIGTERM', () => deregisterService('SIGTERM'));
 
+// --- findService Function (Used by API Gateway, potentially others) ---
 const findService = async (targetServiceName) => {
-    try {
-        const services = await consul.health.service({ service: targetServiceName, passing: true });
-        if (!services || services.length === 0) {
-            console.warn(`[Consul] Discovery: No healthy instances found for ${targetServiceName}`);
-            return null;
-        }
-        
-        const instance = services[Math.floor(Math.random() * services.length)];
-        // The address returned by Consul will be correct for the environment
-        // (service name in Compose, Pod IP in K8s).
-        const address = instance.Service.Address;
-        const port = instance.Service.Port;
-        return `http://${address}:${port}`;
-    } catch (error) {
-        console.error(`[Consul] Error finding service ${targetServiceName}:`, error.message);
-        throw new Error(`Consul discovery failed for ${targetServiceName}`);
+  try {
+    const services = await consul.health.service({
+      service: targetServiceName,
+      passing: true, // Only get healthy instances
+    });
+
+    if (!services || services.length === 0) {
+      console.warn(`[Consul Discovery] For ${SERVICE_NAME}: No healthy instances found for target service: ${targetServiceName}`);
+      return null; // Return null when no healthy service is found
     }
+
+    // Basic random load balancing for multiple instances
+    const instance = services[Math.floor(Math.random() * services.length)];
+    const address = instance.Service.Address;
+    const port = instance.Service.Port;
+    const protocol = instance.Service.Meta?.protocol || 'http';
+    const url = `${protocol}://${address}:${port}`;
+
+    // *** Return the URL string directly ***
+    return url; // <<<<< CORRECTED RETURN VALUE
+
+  } catch (error) {
+    console.error(`[Consul Discovery] For ${SERVICE_NAME}: Error finding target service ${targetServiceName}:`, error.message);
+    throw new Error(`Consul discovery failed for ${targetServiceName} (caller: ${SERVICE_NAME})`);
+  }
 };
 
+
 module.exports = {
+    consul,
     registerService,
-    findService,
+    // deregisterService is handled by process signals
+    findService, // Export findService as it's used by API Gateway and potentially others
 };

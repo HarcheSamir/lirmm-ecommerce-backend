@@ -2,70 +2,66 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const { createProxyMiddleware } = require('http-proxy-middleware');
-const errorHandler = require('../middlewares/errorHandler');
 const { findService } = require('./consul');
+const errorHandler = require('../middlewares/errorHandler');
 
 const app = express();
-
-const IS_IN_KUBERNETES = !!process.env.KUBERNETES_SERVICE_HOST;
-
-const KUBERNETES_SERVICE_URLS = {
-    'auth-service': 'http://auth-service-svc:3001',
-    'product-service': 'http://product-service-svc:3003',
-    'image-service': 'http://image-service-svc:3004',
-    'search-service': 'http://search-service-svc:3005',
-    'cart-service': 'http://cart-service-svc:3006',
-    'order-service': 'http://order-service-svc:3007',
-    'review-service': 'http://review-service-svc:3008',
-};
 
 app.use(cors());
 app.use(morgan('dev'));
 
 app.get('/', (req, res) => {
-    res.json({ message: `${process.env.SERVICE_NAME || 'API Gateway'} online (K8s mode: ${IS_IN_KUBERNETES})` });
+    res.json({ message: `${process.env.SERVICE_NAME || 'API Gateway'} online` });
 });
 
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'UP', service: process.env.SERVICE_NAME });
 });
 
-const createProxy = (serviceName, pathRewriteRules = null) => {
+const createDynamicProxy = (serviceName, pathRewriteRules = null) => {
     return createProxyMiddleware({
         router: async (req) => {
-            if (IS_IN_KUBERNETES) {
-                console.log(`[K8s Proxy] Routing to static URL for ${serviceName}`);
-                return KUBERNETES_SERVICE_URLS[serviceName];
-            } else {
-                console.log(`[Consul Proxy] Discovering and routing to ${serviceName}`);
-                const targetUrl = await findService(serviceName);
-                if (!targetUrl) {
-                    throw new Error(`Service '${serviceName}' not found in Consul.`);
-                }
-                return targetUrl;
+            const targetUrl = await findService(serviceName);
+            if (!targetUrl) {
+                 const serviceUnavailableError = new Error(`Service '${serviceName}' unavailable.`);
+                 serviceUnavailableError.statusCode = 503;
+                 throw serviceUnavailableError;
             }
+            return targetUrl;
         },
         changeOrigin: true,
         logLevel: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
         pathRewrite: pathRewriteRules,
         onError: (err, req, res, next) => {
-            console.error(`[API Gateway] Proxy Error to ${serviceName}:`, err.message);
-            if (!res.headersSent) {
-                res.status(503).json({ message: `Service '${serviceName}' is unavailable.` });
-            } else {
-                next(err);
-            }
-        },
+             console.error(`[API Gateway] Proxy/Router Error for ${serviceName} to path ${req.originalUrl}:`, err.message);
+             const proxyError = new Error();
+             proxyError.message = err.message || `Error connecting to service '${serviceName}'.`;
+             if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ECONNRESET' || err.message.includes("socket hang up")) {
+                 proxyError.statusCode = 503;
+                 proxyError.message = `Service '${serviceName}' is unreachable or unresponsive.`;
+             } else if (err.statusCode) {
+                proxyError.statusCode = err.statusCode;
+             } else {
+                 proxyError.statusCode = 502;
+             }
+             proxyError.message = `Proxy Error for ${serviceName}: ${proxyError.message}`;
+
+             if (res.headersSent) {
+                console.warn(`[API Gateway] Headers already sent for error to ${serviceName}. Letting Express handle.`);
+                return next(err);
+             }
+             next(proxyError);
+        }
     });
 };
 
-app.use('/auth', createProxy('auth-service'));
-app.use('/products', createProxy('product-service'));
-app.use('/images', createProxy('image-service', { '^/images': '' }));
-app.use('/search', createProxy('search-service'));
-app.use('/carts', createProxy('cart-service'));
-app.use('/orders', createProxy('order-service'));
-app.use('/reviews', createProxy('review-service'));
+app.use('/auth', createDynamicProxy('auth-service'));
+app.use('/products', createDynamicProxy('product-service'));
+app.use('/images', createDynamicProxy('image-service', { '^/images': '' }));
+app.use('/search', createDynamicProxy('search-service'));
+app.use('/carts', createDynamicProxy('cart-service'));
+app.use('/orders', createDynamicProxy('order-service'));
+app.use('/reviews', createDynamicProxy('review-service'));
 
 app.use(errorHandler);
 

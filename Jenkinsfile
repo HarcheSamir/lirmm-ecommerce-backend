@@ -18,23 +18,21 @@ def DEPLOYMENT_NAMES = [
 ]
 
 pipeline {
-    agent { label 'wsl' } // Ensure your Jenkins agent has this label
+    agent { label 'wsl' }
 
     options {
         timestamps()
         disableConcurrentBuilds()
-        timeout(time: 60, unit: 'MINUTES') // Increased timeout for Istio setup
+        timeout(time: 50, unit: 'MINUTES')
     }
 
     environment {
-        IMAGE_PREFIX = 'library' // Default for local Docker, Docker Hub user/org for remote
+        IMAGE_PREFIX = 'library'
         IMAGE_TAG = "${env.BUILD_ID}"
         KIND_CLUSTER_NAME = "lirmm-ecommerce-dev-jenkins"
         KIND_CONFIG_FILE = './kind-deployment/kind-cluster-config.yaml'
         KUBERNETES_MANIFEST_TEMPLATE_FILE = './kind-deployment/kubernetes-manifests.yaml'
         KUBERNETES_MANIFEST_RENDERED_FILE = "./kind-deployment/kubernetes-manifests-rendered-${env.BUILD_ID}.yaml"
-        // <-- NEW: Istio Version -->
-        ISTIO_VERSION = "1.22.1"
     }
 
     stages {
@@ -90,40 +88,15 @@ pipeline {
                 }
             }
         }
-        
-        // <-- NEW STAGE: Install Istio & Addons -->
-        stage('Install Istio & Addons') {
-            steps {
-                script {
-                    echo "Ensuring kubectl context is set for Kind cluster..."
-                    sh "kubectl config use-context kind-${env.KIND_CLUSTER_NAME}"
-                    
-                    echo "Downloading Istio CLI (istioctl) version ${env.ISTIO_VERSION}..."
-                    sh "curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${env.ISTIO_VERSION} sh -"
-                    
-                    def istioPath = "${pwd()}/istio-${env.ISTIO_VERSION}/bin"
-                    
-                    withEnv(["PATH+ISTIO=${istioPath}"]) {
-                        echo "Installing Istio onto the cluster..."
-                        sh "istioctl install --set profile=demo -y"
-
-                        echo "Enabling Istio automatic sidecar injection on the 'default' namespace..."
-                        sh "kubectl label namespace default istio-injection=enabled --overwrite"
-
-                        echo "Deploying Istio's Prometheus, Grafana, and Kiali addons..."
-                        sh "kubectl apply -f istio-${env.ISTIO_VERSION}/samples/addons/prometheus.yaml"
-                        sh "kubectl apply -f istio-${env.ISTIO_VERSION}/samples/addons/grafana.yaml"
-                        sh "kubectl apply -f istio-${env.ISTIO_VERSION}/samples/addons/kiali.yaml"
-                    }
-                }
-            }
-        }
 
         stage('Deploy Application to Kind') {
              steps {
                 script {
                     echo "Ensuring kubectl context is set for Kind cluster..."
                     sh "kubectl config use-context kind-${env.KIND_CLUSTER_NAME}"
+                    echo "Verifying kubectl connection to cluster..."
+                    sh "kubectl cluster-info"
+                    sh "kubectl get nodes"
 
                     echo "Rendering Kubernetes manifest with image details..."
                     sh "export IMAGE_PREFIX='${env.IMAGE_PREFIX}' && export IMAGE_TAG='${env.IMAGE_TAG}' && envsubst < ${env.KUBERNETES_MANIFEST_TEMPLATE_FILE} > ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
@@ -132,22 +105,15 @@ pipeline {
                     echo "Applying rendered Kubernetes manifests: ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
                     sh "kubectl apply -f ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
 
-                    echo "Waiting for all deployments to rollout..."
-                    timeout(time: 25, unit: 'MINUTES') { // Increased total rollout timeout
-                        // First, wait for Istio components to be ready
-                        echo "Waiting for Istio Ingress Gateway..."
-                        sh "kubectl rollout status deployment/istio-ingressgateway -n istio-system --watch=true --timeout=5m"
-
-                        // Now, wait for our application deployments
+                    echo "Waiting for deployments to rollout..."
+                    timeout(time: 20, unit: 'MINUTES') {
                         DEPLOYMENT_NAMES.each { deploymentName ->
                            echo "Waiting for deployment/${deploymentName} rollout status..."
-                           // Note: Istio-injected pods will take longer to become ready (2 containers)
                            sh "kubectl rollout status deployment/${deploymentName} --watch=true --timeout=15m"
                         }
                     }
                     echo "All specified deployments successfully rolled out."
 
-                    // The Consul health check remains a good secondary validation
                     sleep(time: 30, unit: 'SECONDS')
                     echo "Checking Consul service health (informational)..."
                      try {
@@ -173,11 +139,8 @@ pipeline {
         stage('Integration/E2E Tests (Placeholder)') {
              steps {
                 echo "Running tests against deployed services on Kind..."
-                // <-- MODIFIED: The access point is now the Istio Gateway, which we map to hostPort 13000 -->
-                echo "Application Entry Point (Istio Gateway): http://localhost:13000"
-                sleep(time: 15, unit: 'SECONDS') // Placeholder for actual test execution
-                echo "Pinging API Gateway health endpoint through Istio Gateway..."
-                sh "curl -I http://localhost:13000/health"
+                echo "API Gateway NodePort: <http://localhost:13000>"
+                sleep(time: 10, unit: 'SECONDS')
              }
         }
     }
@@ -188,24 +151,17 @@ pipeline {
                  echo "Starting post-build cleanup..."
                  echo "Removing rendered manifest file: ${env.KUBERNETES_MANIFEST_RENDERED_FILE}"
                  sh "rm -f ${env.KUBERNETES_MANIFEST_RENDERED_FILE} || true"
-
+                 
                  echo "Kind cluster ${env.KIND_CLUSTER_NAME} left running for inspection."
                  echo "Cleanup finished (Manifests removed, Cluster PERSISTS)."
              }
         }
         success {
             echo "Pipeline successful. Application deployed to Kind cluster: ${env.KIND_CLUSTER_NAME}"
-            // <-- MODIFIED: Updated instructions for Istio environment -->
-            echo "Access application via Istio Gateway at: http://localhost:13000"
-            echo "To access observability dashboards, use 'kubectl port-forward' on the machine running Jenkins:"
-            echo "Grafana: kubectl port-forward svc/grafana -n istio-system 3000:3000"
-            echo "Kiali:   kubectl port-forward svc/kiali -n istio-system 20001:20001"
+            echo "Access services via NodePorts defined in kind-cluster-config.yaml (e.g., API Gateway at <http://localhost:13000>)"
         }
         failure {
             echo "Pipeline failed."
-            // You can add more detailed log collection here if needed
-            // sh "kubectl get pods -A"
-            // sh "kubectl logs deployment/api-gateway-deployment -c api-gateway --tail=100"
         }
     }
 }
