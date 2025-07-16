@@ -1,8 +1,6 @@
 # This manifest is now designed to be deployed into an Istio-enabled namespace.
-# Services are changed from NodePort to ClusterIP, and an Istio Gateway/VirtualService is added.
-# Your application Deployments remain unchanged.
 #
-# --- INFRASTRUCTURE DEPLOYMENTS (Unchanged) ---
+# --- INFRASTRUCTURE DEPLOYMENTS ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -77,11 +75,10 @@ spec:
           value: "PLAINTEXT://kafka-deployment.default.svc.cluster.local:9092,EXTERNAL://localhost:39092"
         - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
           value: "1"
-        - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
-          value: "true"
         - name: KAFKA_DEFAULT_REPLICATION_FACTOR
           value: "1"
-        # Other Kafka settings...
+        - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+          value: "true"
 ---
 apiVersion: v1
 kind: Service
@@ -99,7 +96,7 @@ spec:
     protocol: TCP
     port: 29092
     targetPort: 29092
-    nodePort: 30902 # Mapped to 39092 in kind-config.yaml
+    nodePort: 30902
   type: NodePort
 ---
 apiVersion: apps/v1
@@ -145,7 +142,7 @@ spec:
     protocol: TCP
     port: 9200
     targetPort: 9200
-    nodePort: 32200 # Mapped to 19200 in kind-config.yaml
+    nodePort: 32200
   type: NodePort
 ---
 apiVersion: apps/v1
@@ -190,7 +187,7 @@ spec:
     protocol: TCP
     port: 8500
     targetPort: 8500
-    nodePort: 32500 # Mapped to 18500 in kind-config.yaml
+    nodePort: 32500
   type: NodePort
 ---
 apiVersion: apps/v1
@@ -228,7 +225,7 @@ spec:
   - protocol: TCP
     port: 6379
     targetPort: 6379
-    nodePort: 32379 # Mapped to 19379 in kind-config.yaml
+    nodePort: 32379
   type: NodePort
 ---
 apiVersion: apps/v1
@@ -271,7 +268,7 @@ spec:
   - protocol: TCP
     port: 5432
     targetPort: 5432
-    nodePort: 30434 # Mapped to 15434 in kind-config.yaml
+    nodePort: 30434
   type: NodePort
 ---
 apiVersion: apps/v1
@@ -314,7 +311,7 @@ spec:
   - protocol: TCP
     port: 5432
     targetPort: 5432
-    nodePort: 30435 # Mapped to 15435 in kind-config.yaml
+    nodePort: 30435
   type: NodePort
 ---
 apiVersion: apps/v1
@@ -357,7 +354,7 @@ spec:
   - protocol: TCP
     port: 5432
     targetPort: 5432
-    nodePort: 30436 # Mapped to 15436 in kind-config.yaml
+    nodePort: 30436
   type: NodePort
 ---
 apiVersion: apps/v1
@@ -400,7 +397,7 @@ spec:
   - protocol: TCP
     port: 5432
     targetPort: 5432
-    nodePort: 30437 # Mapped to 15437 in kind-config.yaml
+    nodePort: 30437
   type: NodePort
 ---
 ######################################################
@@ -412,14 +409,14 @@ metadata:
   name: ecommerce-gateway
 spec:
   selector:
-    istio: ingressgateway # use istio's default controller
+    istio: ingressgateway
   servers:
   - port:
       number: 80
       name: http
       protocol: HTTP
     hosts:
-    - "*" # This gateway will handle all incoming HTTP traffic
+    - "*"
 ---
 apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
@@ -431,8 +428,6 @@ spec:
   gateways:
   - ecommerce-gateway
   http:
-  # All traffic entering the gateway is routed to the api-gateway service
-  # The api-gateway then proxies to other services internally via their ClusterIP names
   - route:
     - destination:
         host: api-gateway-svc
@@ -472,16 +467,6 @@ spec:
           value: "consul-svc"
         - name: SERVICE_NAME
           value: "api-gateway"
-        - name: NODE_ENV
-          value: "development"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -491,7 +476,8 @@ spec:
   selector:
     app: api-gateway
   ports:
-  - protocol: TCP
+  - name: http
+    protocol: TCP
     port: 3000
     targetPort: 3000
   type: ClusterIP
@@ -516,7 +502,6 @@ spec:
       initContainers:
       - name: auth-db-migrate
         image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "echo '[Init Container auth-service] Pushing schema...' && npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && echo '[Init Container auth-service] Seeding DB...' && npx prisma db seed --schema=./prisma/schema.prisma && echo '[Init Container auth-service] DB setup complete.'"]
         env:
         - name: DATABASE_URL
@@ -524,7 +509,6 @@ spec:
       containers:
       - name: auth-service
         image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3001
         command: ["node", "src/index.js"]
@@ -541,14 +525,6 @@ spec:
           value: "auth-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -558,7 +534,8 @@ spec:
   selector:
     app: auth-service
   ports:
-  - protocol: TCP
+  - name: http
+    protocol: TCP
     port: 3001
     targetPort: 3001
   type: ClusterIP
@@ -583,7 +560,6 @@ spec:
       initContainers:
       - name: product-db-migrate
         image: ${IMAGE_PREFIX}/product-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "echo '[Init Container product-service] Pushing schema...' && npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && echo '[Init Container product-service] Seeding DB...' && npx prisma db seed --schema=./prisma/schema.prisma || echo '[Init Container product-service] WARNING: Seed command failed but continuing.'"]
         env:
         - name: DATABASE_URL
@@ -591,7 +567,6 @@ spec:
       containers:
       - name: product-service
         image: ${IMAGE_PREFIX}/product-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3003
         command: ["node", "src/index.js"]
@@ -606,14 +581,6 @@ spec:
           value: "product-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -623,7 +590,8 @@ spec:
   selector:
     app: product-service
   ports:
-  - protocol: TCP
+  - name: http
+    protocol: TCP
     port: 3003
     targetPort: 3003
   type: ClusterIP
@@ -648,7 +616,6 @@ spec:
       containers:
       - name: image-service
         image: ${IMAGE_PREFIX}/image-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3004
         env:
@@ -658,14 +625,6 @@ spec:
           value: "consul-svc"
         - name: SERVICE_NAME
           value: "image-service"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -675,7 +634,8 @@ spec:
   selector:
     app: image-service
   ports:
-  - protocol: TCP
+  - name: http
+    protocol: TCP
     port: 3004
     targetPort: 3004
   type: ClusterIP
@@ -700,7 +660,6 @@ spec:
       containers:
       - name: search-service
         image: ${IMAGE_PREFIX}/search-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3005
         env:
@@ -714,14 +673,6 @@ spec:
           value: "kafka-svc:9092"
         - name: ELASTICSEARCH_NODE
           value: "http://elasticsearch-svc:9200"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -731,7 +682,8 @@ spec:
   selector:
     app: search-service
   ports:
-  - protocol: TCP
+  - name: http
+    protocol: TCP
     port: 3005
     targetPort: 3005
   type: ClusterIP
@@ -756,7 +708,6 @@ spec:
       containers:
       - name: cart-service
         image: ${IMAGE_PREFIX}/cart-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3006
         env:
@@ -770,14 +721,6 @@ spec:
           value: "redis-svc"
         - name: REDIS_PORT
           value: "6379"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -787,7 +730,8 @@ spec:
   selector:
     app: cart-service
   ports:
-  - protocol: TCP
+  - name: http
+    protocol: TCP
     port: 3006
     targetPort: 3006
   type: ClusterIP
@@ -832,14 +776,6 @@ spec:
           value: "order-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -849,7 +785,8 @@ spec:
   selector:
     app: order-service
   ports:
-  - protocol: TCP
+  - name: http
+    protocol: TCP
     port: 3007
     targetPort: 3007
   type: ClusterIP
@@ -894,14 +831,6 @@ spec:
           value: "review-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -911,7 +840,8 @@ spec:
   selector:
     app: review-service
   ports:
-  - protocol: TCP
+  - name: http
+    protocol: TCP
     port: 3008
     targetPort: 3008
   type: ClusterIP
