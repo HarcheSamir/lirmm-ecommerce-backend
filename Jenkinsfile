@@ -14,7 +14,7 @@ def DEPLOYMENT_NAMES = [
     'consul-deployment', 'redis-deployment',
     'auth-db-deployment', 'product-db-deployment', 'order-db-deployment',
     'api-gateway-deployment', 'auth-service-deployment', 'product-service-deployment',
-    'image-service-deployment', 'search-service-deployment', 'cart-service-deployment', 'order-service-deployment', 'review-service' 
+    'image-service-deployment', 'search-service-deployment', 'cart-service-deployment', 'order-service-deployment', 'review-service-deployment' 
 ]
 
 
