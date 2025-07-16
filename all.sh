@@ -9,6 +9,7 @@ find . -type f \
     -path "*/product-service/*" -o \
     -path "*/cart-service/*" -o \
     -path "*/order-service/*" \
+    -path "*/review-service/*" \
   \) \
   ! -path "*/node_modules/*" \
   ! -path "*/.git/*" \

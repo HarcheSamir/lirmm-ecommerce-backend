@@ -11,7 +11,8 @@ CUSTOM_SERVICES=(
   "image-service"
   "search-service"
   "cart-service"
-  "order-service" # <-- ADDED cart-service
+  "order-service" 
+  "review-service"
 )
 # For setup-kind.sh, we use a specific tag that kubernetes-manifests.yaml might expect
 # if it wasn't parameterized for Jenkins (here, it is, so this is less critical
@@ -174,6 +175,7 @@ echo "Databases (via NodePorts):"
 echo "Auth DB (pg):      localhost:15434 (User: postgres, Pass: postgres, DB: auth_db)"
 echo "Product DB (pg):   localhost:15435 (User: postgres, Pass: postgres, DB: product_db)"
 echo "Order DB (pg):     localhost:15436 (User: postgres, Pass: postgres, DB: order_db)"
+echo "Review DB (pg):    localhost:15437 (User: postgres, Pass: postgres, DB: review_db)"
 echo ""
 echo "To delete the cluster: kind delete cluster --name ${CLUSTER_NAME}"
 echo "To remove rendered manifest: rm -f ${KUBERNETES_MANIFEST_RENDERED_FILE}"

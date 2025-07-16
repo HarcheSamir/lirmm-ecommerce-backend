@@ -980,3 +980,130 @@ spec:
     targetPort: 3007
     nodePort: 30007
   type: NodePort
+
+
+  # --- Review DB (PostgreSQL) ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-db-deployment
+  labels:
+    app: review-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: review-db
+  template:
+    metadata:
+      labels:
+        app: review-db
+    spec:
+      containers:
+      - name: review-db
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          value: "postgres"
+        - name: POSTGRES_DB
+          value: "review_db"
+        volumeMounts:
+        - name: review-db-data
+          mountPath: /var/lib/postgresql/data
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "postgres", "-d", "review_db"]
+          initialDelaySeconds: 20
+          periodSeconds: 10
+      volumes:
+      - name: review-db-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-db-svc
+spec:
+  selector:
+    app: review-db
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432
+    nodePort: 30437
+  type: NodePort
+---
+# --- Review Service ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-service-deployment
+  labels:
+    app: review-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: review-service
+  template:
+    metadata:
+      labels:
+        app: review-service
+    spec:
+      initContainers:
+      - name: review-db-migrate
+        image: ${IMAGE_PREFIX}/review-service:${IMAGE_TAG}
+        command: ["sh", "-c", "echo Waiting for review-db... && until nc -zv review-db-svc 5432; do sleep 2; done; echo Pushing schema... && npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss; echo Done."]
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@review-db-svc:5432/review_db?schema=public"
+      containers:
+      - name: review-service
+        image: ${IMAGE_PREFIX}/review-service:${IMAGE_TAG}
+        ports:
+        - containerPort: 3008
+        env:
+        - name: PORT
+          value: "3008"
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@review-db-svc:5432/review_db?schema=public"
+        - name: CONSUL_AGENT_HOST
+          value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "review-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"
+        - name: NODE_ENV
+          value: "development"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3008
+          initialDelaySeconds: 25
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-service-svc
+spec:
+  selector:
+    app: review-service
+  ports:
+  - protocol: TCP
+    port: 3008
+    targetPort: 3008
+    nodePort: 30008
+  type: NodePort

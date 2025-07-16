@@ -1,6 +1,6 @@
 tree -I "node_modules"
 
-find ./image-service -type f \
+find ./kind-deployment -type f \
   ! -name "package-lock.json" \
   ! -name "docker-compose.dev" \
   ! -name "all.sh" \

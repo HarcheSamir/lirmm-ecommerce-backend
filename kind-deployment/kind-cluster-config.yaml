@@ -65,4 +65,7 @@ nodes:
   - containerPort: 30436
     hostPort: 15436
     protocol: TCP
-
+  # Review DB (PostgreSQL, NodePort 30437 from review-db-svc) # <-- ADDED
+  - containerPort: 30437
+    hostPort: 15437
+    protocol: TCP
