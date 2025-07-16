@@ -11,14 +11,11 @@ CUSTOM_SERVICES=(
   "image-service"
   "search-service"
   "cart-service"
-  "order-service" 
+  "order-service"
   "review-service"
 )
-# For setup-kind.sh, we use a specific tag that kubernetes-manifests.yaml might expect
-# if it wasn't parameterized for Jenkins (here, it is, so this is less critical
-# but good for local consistency if not using Jenkins substitutions)
-KIND_IMAGE_TAG="latest" # or 'dev', or a fixed version
-CLUSTER_NAME="lirmm-dev-cluster" # Default cluster name for local dev
+KIND_IMAGE_TAG="latest"
+CLUSTER_NAME="lirmm-dev-cluster"
 
 PUBLIC_IMAGES=(
   "postgres:15-alpine"
@@ -26,34 +23,82 @@ PUBLIC_IMAGES=(
   "confluentinc/cp-kafka:7.3.2"
   "docker.elastic.co/elasticsearch/elasticsearch:8.11.1"
   "hashicorp/consul:1.18"
-  "redis:7.2-alpine" # <-- ADDED redis
+  "redis:7.2-alpine"
 )
 
-# The setup-kind.sh will use fixed image tags ('latest' or 'dev') for custom services for local build simplicity.
-# Jenkinsfile handles dynamic IMAGE_TAG.
-# We use a non-parameterized KUBERNETES_MANIFEST_FILE and substitute fixed tags manually.
-
-KUBERNETES_MANIFEST_TEMPLATE_FILE="./kind-deployment/kubernetes-manifests.yaml" # This IS the template
+KUBERNETES_MANIFEST_TEMPLATE_FILE="./kind-deployment/kubernetes-manifests.yaml"
 KUBERNETES_MANIFEST_RENDERED_FILE="./kind-deployment/kubernetes-manifests-rendered-local.yaml"
 KIND_CONFIG_FILE="./kind-deployment/kind-cluster-config.yaml"
 
+# <-- NEW: Istio Version -->
+ISTIO_VERSION="1.22.1" # Using a recent, stable version of Istio
+
 # --- Functions ---
+
+# <-- NEW: Function to setup Istio CLI -->
+setup_istio_cli() {
+  if [ ! -d "istio-${ISTIO_VERSION}" ]; then
+    echo "--- Setting up Istio CLI (istioctl) version ${ISTIO_VERSION} ---"
+    curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${ISTIO_VERSION} sh -
+    if [ $? -ne 0 ]; then
+      echo "ERROR: Failed to download Istio. Exiting."
+      exit 1
+    fi
+  else
+    echo "--- Istio ${ISTIO_VERSION} directory already exists, skipping download. ---"
+  fi
+  # Add istioctl to this script's PATH
+  export PATH="$PWD/istio-${ISTIO_VERSION}/bin:$PATH"
+  echo "istioctl path set for this session."
+}
+
 cleanup_cluster() {
   echo "--- Checking for existing Kind cluster: $CLUSTER_NAME ---"
-  if [[ $(kind get clusters | grep -q "^${CLUSTER_NAME}$") ]]; then
+  if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
     read -p "Cluster '$CLUSTER_NAME' already exists. Delete and recreate? (y/N) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
       echo "Deleting cluster '$CLUSTER_NAME'..."
       kind delete cluster --name "$CLUSTER_NAME"
       echo "Cluster '$CLUSTER_NAME' deleted."
+      create_kind_cluster
     else
       echo "Skipping cluster recreation. Attempting to deploy to existing cluster."
-      # Optional: try to load images even if cluster exists, or skip this stage too.
-      return # Exit function if not recreating
     fi
+  else
+    create_kind_cluster
   fi
-  create_kind_cluster # Only create if deleted or didn't exist
+}
+
+create_kind_cluster() {
+  echo ""
+  echo "--- Creating Kind cluster '$CLUSTER_NAME' with config from ${KIND_CONFIG_FILE} ---"
+  kind create cluster --name "$CLUSTER_NAME" --config="${KIND_CONFIG_FILE}"
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Kind cluster creation failed. Exiting."
+    exit 1
+  fi
+}
+
+# <-- NEW: Function to install Istio and addons -->
+install_istio() {
+  echo ""
+  echo "--- Installing Istio onto cluster '$CLUSTER_NAME' ---"
+  istioctl install --set profile=demo -y
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Istio installation failed. Exiting."
+    exit 1
+  fi
+
+  echo "--- Enabling Istio automatic sidecar injection on the 'default' namespace ---"
+  kubectl label namespace default istio-injection=enabled --overwrite
+
+  echo "--- Deploying Istio's Prometheus, Grafana, and Kiali addons ---"
+  kubectl apply -f "istio-${ISTIO_VERSION}/samples/addons/prometheus.yaml"
+  kubectl apply -f "istio-${ISTIO_VERSION}/samples/addons/grafana.yaml"
+  kubectl apply -f "istio-${ISTIO_VERSION}/samples/addons/kiali.yaml"
+  echo "Waiting for Istio addons to be created..."
+  sleep 15 # Give addons time to be created before checking status
 }
 
 pull_public_images() {
@@ -73,8 +118,6 @@ build_custom_images() {
   echo ""
   echo "--- Building Docker images for custom services with tag '${KIND_IMAGE_TAG}' ---"
   for SERVICE_DIR in "${CUSTOM_SERVICES[@]}"; do
-    # Image name for custom services will be "library/servicename:tag" for consistency with Jenkins,
-    # though for local Kind, "servicename:tag" is also fine. We'll use IMAGE_PREFIX from env if set, else 'library'.
     local IMAGE_PREFIX_LOCAL="${IMAGE_PREFIX:-library}"
     local FULL_IMAGE_NAME="${IMAGE_PREFIX_LOCAL}/${SERVICE_DIR}:${KIND_IMAGE_TAG}"
     echo "Building ${FULL_IMAGE_NAME} from ./${SERVICE_DIR}"
@@ -91,20 +134,9 @@ build_custom_images() {
   done
 }
 
-create_kind_cluster() {
-  echo ""
-  echo "--- Creating Kind cluster '$CLUSTER_NAME' with config from ${KIND_CONFIG_FILE} ---"
-  kind create cluster --name "$CLUSTER_NAME" --config="${KIND_CONFIG_FILE}"
-  if [ $? -ne 0 ]; then
-    echo "ERROR: Kind cluster creation failed. Exiting."
-    exit 1
-  fi
-}
-
 load_images_to_kind() {
   echo ""
   echo "--- Loading ALL Docker images into Kind cluster '$CLUSTER_NAME' ---"
-  # Load custom images
   for SERVICE_DIR in "${CUSTOM_SERVICES[@]}"; do
     local IMAGE_PREFIX_LOCAL="${IMAGE_PREFIX:-library}"
     local FULL_IMAGE_NAME="${IMAGE_PREFIX_LOCAL}/${SERVICE_DIR}:${KIND_IMAGE_TAG}"
@@ -115,7 +147,6 @@ load_images_to_kind() {
       exit 1
     fi
   done
-  # Load public images
   for IMAGE_NAME in "${PUBLIC_IMAGES[@]}"; do
     echo "Loading public image ${IMAGE_NAME} into cluster '$CLUSTER_NAME'"
     kind load docker-image "${IMAGE_NAME}" --name "$CLUSTER_NAME"
@@ -130,65 +161,56 @@ deploy_kubernetes_manifests() {
   echo ""
   echo "--- Rendering and Deploying Kubernetes manifests ---"
 
-  # For local setup, substitute with the fixed local tag
-  export IMAGE_PREFIX="${IMAGE_PREFIX:-library}" # Use 'library' if IMAGE_PREFIX not set in env
+  export IMAGE_PREFIX="${IMAGE_PREFIX:-library}"
   export IMAGE_TAG="${KIND_IMAGE_TAG}"
   envsubst < "${KUBERNETES_MANIFEST_TEMPLATE_FILE}" > "${KUBERNETES_MANIFEST_RENDERED_FILE}"
   echo "Rendered manifest saved to ${KUBERNETES_MANIFEST_RENDERED_FILE}"
 
-
   kubectl apply -f "${KUBERNETES_MANIFEST_RENDERED_FILE}"
   if [ $? -ne 0 ]; then
     echo "ERROR: kubectl apply failed. Check output above for specific errors."
-    # exit 1 # Commenting out exit to allow observation
   fi
 
   echo "--- Waiting for deployments to stabilize (this may take several minutes)... ---"
-  # Simplified wait logic for local script. Jenkinsfile has more robust rollout status.
-  # You might want to check DEPLOYMENT_NAMES array similar to Jenkinsfile for robustness
-  sleep 10 # Initial grace period
   kubectl get pods -A -w
 }
 
 print_access_info() {
-echo ""
-echo "--- Deployment attempt complete! ---"
-echo "Monitor pod status with: kubectl get pods -A -w"
-echo "Once all pods are Running and Ready (e.g., 1/1), access services:"
-echo ""
-echo "Common Services:"
-echo "API Gateway:       <http://localhost:13000>"
-echo "Consul UI:         <http://localhost:18500>"
-echo "Elasticsearch:     <http://localhost:19200>"
-echo "Kafka (External):  localhost:39092"
-echo "Redis (External):    localhost:19379 (if mapped in kind-cluster-config, from nodePort 32379)"
-echo ""
-echo "Individual Service NodePorts (if direct access needed/configured):"
-echo "Auth Service:      <http://localhost:13001> (NodePort 30001)"
-echo "Product Service:   <http://localhost:13003> (NodePort 30003)"
-echo "Image Service:     <http://localhost:13004> (NodePort 30004) -> IMAGE_BASE_URL is this"
-echo "Search Service:    <http://localhost:13005> (NodePort 30005)"
-echo "Cart Service:      <http://localhost:13006> (NodePort 30006)" # <-- ADDED
-echo "Order Service:     <http://localhost:13007> (NodePort 30007)"
-echo ""
-echo "Databases (via NodePorts):"
-echo "Auth DB (pg):      localhost:15434 (User: postgres, Pass: postgres, DB: auth_db)"
-echo "Product DB (pg):   localhost:15435 (User: postgres, Pass: postgres, DB: product_db)"
-echo "Order DB (pg):     localhost:15436 (User: postgres, Pass: postgres, DB: order_db)"
-echo "Review DB (pg):    localhost:15437 (User: postgres, Pass: postgres, DB: review_db)"
-echo ""
-echo "To delete the cluster: kind delete cluster --name ${CLUSTER_NAME}"
-echo "To remove rendered manifest: rm -f ${KUBERNETES_MANIFEST_RENDERED_FILE}"
+  # <-- MODIFIED: Updated access info for Istio -->
+  echo ""
+  echo "--- Deployment attempt complete! ---"
+  echo "Monitor pod status with: kubectl get pods -A -w"
+  echo "All application pods should show '2/2' containers Running (app + istio-proxy)."
+  echo ""
+  echo "--- Application Access ---"
+  echo "The primary entry point is now the Istio Ingress Gateway."
+  echo "Application URL:   http://localhost:13000  (e.g., http://localhost:13000/products)"
+  echo ""
+  echo "--- Observability Tools (use kubectl port-forward in a new terminal) ---"
+  echo "Grafana:           (run: kubectl port-forward svc/grafana -n istio-system 3000:3000) -> Access at http://localhost:3000"
+  echo "Prometheus:        (run: kubectl port-forward svc/prometheus -n istio-system 9090:9090) -> Access at http://localhost:9090"
+  echo "Kiali (Topology):  (run: kubectl port-forward svc/kiali -n istio-system 20001:20001) -> Access at http://localhost:20001 (user: admin, pass: admin)"
+  echo ""
+  echo "--- Direct Infrastructure Access ---"
+  echo "Consul UI:         http://localhost:18500"
+  echo "Kafka (External):  localhost:39092"
+  echo "Elasticsearch:     http://localhost:19200"
+  echo "Redis:             localhost:19379"
+  echo "Auth DB (pg):      localhost:15434"
+  echo "Product DB (pg):   localhost:15435"
+  echo "Order DB (pg):     localhost:15436"
+  echo "Review DB (pg):    localhost:15437"
+  echo ""
+  echo "To delete the cluster: kind delete cluster --name ${CLUSTER_NAME}"
+  echo "To remove rendered manifest: rm -f ${KUBERNETES_MANIFEST_RENDERED_FILE}"
 }
 
-# --- Main Execution ---
-cleanup_cluster           # Step 0: Ask to clean/create cluster
-pull_public_images        # Step 1: Pull public images to host
-build_custom_images       # Step 2: Build your service images (uses local tag)
-# create_kind_cluster is called by cleanup_cluster if needed
+# --- Main Execution (Reordered) ---
+setup_istio_cli           # Step 0: Ensure istioctl is available
+cleanup_cluster           # Step 1: Ask to clean/create cluster
+pull_public_images        # Step 2: Pull public images to host
+build_custom_images       # Step 3: Build your service images
 load_images_to_kind       # Step 4: Load ALL images into Kind
-deploy_kubernetes_manifests # Step 5: Deploy your application (uses local tag substitution)
-print_access_info
-
-# Return to original directory (optional, if SCRIPT_DIR was different from initial cd)
-# cd "$SCRIPT_DIR"
+install_istio             # Step 5: <-- NEW --> Install Istio and addons
+deploy_kubernetes_manifests # Step 6: Deploy your application
+print_access_info         # Step 7: Show updated access info

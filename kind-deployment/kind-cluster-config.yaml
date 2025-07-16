@@ -9,63 +9,42 @@ nodes:
       kubeletExtraArgs:
         node-labels: "ingress-ready=true"
   extraPortMappings:
-  # Kafka (External Listener, NodePort 30902 from kafka-svc)
+  # <-- MODIFIED: Primary entry point is now the Istio Ingress Gateway -->
+  # This maps host port 13000 to the Istio Ingress Gateway's HTTP port (80)
+  - containerPort: 80
+    hostPort: 13000
+    protocol: TCP
+
+  # <-- INFRASTRUCTURE PORTS: Kept for direct development access -->
+  # Kafka (External Listener) - Maps to the service's defined NodePort
   - containerPort: 30902
     hostPort: 39092
     protocol: TCP
-  # Elasticsearch API (NodePort 32200 from elasticsearch-svc)
+  # Elasticsearch API - Maps to the service's defined NodePort
   - containerPort: 32200
     hostPort: 19200
     protocol: TCP
-  # Consul UI/API (NodePort 32500 from consul-svc)
+  # Consul UI/API - Maps to the service's defined NodePort
   - containerPort: 32500
     hostPort: 18500
     protocol: TCP
-  # Redis (NodePort 32379 from redis-svc) # <-- ADDED Redis port mapping
+  # Redis - Maps to the service's defined NodePort
   - containerPort: 32379
-    hostPort: 19379 # Different host port to avoid clash if local Redis runs on 6379
+    hostPort: 19379
     protocol: TCP
-  # API Gateway (NodePort 30000 from api-gateway-svc)
-  - containerPort: 30000
-    hostPort: 13000
-    protocol: TCP
-  # Auth Service (NodePort 30001 from auth-service-svc)
-  - containerPort: 30001
-    hostPort: 13001
-    protocol: TCP
-  # Product Service (NodePort 30003 from product-service-svc)
-  - containerPort: 30003
-    hostPort: 13003
-    protocol: TCP
-  # Image Service (NodePort 30004 from image-service-svc)
-  - containerPort: 30004
-    hostPort: 13004
-    protocol: TCP
-  # Search Service (NodePort 30005 from search-service-svc)
-  - containerPort: 30005
-    hostPort: 13005
-    protocol: TCP
-  # Cart Service (NodePort 30006 from cart-service-svc) # <-- ADDED Cart Service port mapping
-  - containerPort: 30006
-    hostPort: 13006
-    protocol: TCP
-    # Order Service (NodePort 30007 from order-service-svc) # <-- ADDED
-  - containerPort: 30007
-    hostPort: 13007
-    protocol: TCP
-  # Auth DB (PostgreSQL, NodePort 30434 from auth-db-svc)
+  # Auth DB (PostgreSQL) - Maps to the service's defined NodePort
   - containerPort: 30434
     hostPort: 15434
     protocol: TCP
-  # Product DB (PostgreSQL, NodePort 30435 from product-db-svc)
+  # Product DB (PostgreSQL) - Maps to the service's defined NodePort
   - containerPort: 30435
     hostPort: 15435
     protocol: TCP
-  # Order DB (PostgreSQL, NodePort 30436 from order-db-svc) # <-- ADDED
+  # Order DB (PostgreSQL) - Maps to the service's defined NodePort
   - containerPort: 30436
     hostPort: 15436
     protocol: TCP
-  # Review DB (PostgreSQL, NodePort 30437 from review-db-svc) # <-- ADDED
+  # Review DB (PostgreSQL) - Maps to the service's defined NodePort
   - containerPort: 30437
     hostPort: 15437
     protocol: TCP

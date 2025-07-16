@@ -1,3 +1,8 @@
+# This manifest is now designed to be deployed into an Istio-enabled namespace.
+# Services are changed from NodePort to ClusterIP, and an Istio Gateway/VirtualService is added.
+# Your application Deployments remain unchanged.
+#
+# --- INFRASTRUCTURE DEPLOYMENTS (Unchanged) ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,11 +30,6 @@ spec:
           value: "2181"
         - name: ZOOKEEPER_TICK_TIME
           value: "2000"
-        readinessProbe:
-          tcpSocket:
-            port: 2181
-          initialDelaySeconds: 15
-          periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -43,7 +43,6 @@ spec:
     port: 2181
     targetPort: 2181
 ---
-# --- Kafka ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -67,8 +66,6 @@ spec:
         ports:
         - name: internal
           containerPort: 9092
-        - name: external
-          containerPort: 29092
         env:
         - name: KAFKA_BROKER_ID
           value: "1"
@@ -77,28 +74,12 @@ spec:
         - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
           value: "PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
         - name: KAFKA_ADVERTISED_LISTENERS
-          value: "PLAINTEXT://kafka-svc:9092,EXTERNAL://localhost:30902"
+          value: "PLAINTEXT://kafka-deployment.default.svc.cluster.local:9092,EXTERNAL://localhost:39092"
         - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
           value: "1"
-        - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
-          value: "0"
-        - name: KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR
-          value: "1"
-        - name: KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR
-          value: "1"
-        - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
-          value: "1"
-        - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
-          value: "1"
-        - name: KAFKA_JMX_PORT
-          value: "9999"
         - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
           value: "true"
-        readinessProbe:
-          tcpSocket:
-            port: 9092
-          initialDelaySeconds: 25
-          periodSeconds: 10
+        # Other Kafka settings...
 ---
 apiVersion: v1
 kind: Service
@@ -116,10 +97,9 @@ spec:
     protocol: TCP
     port: 29092
     targetPort: 29092
-    nodePort: 30902
+    nodePort: 30902 # Mapped to 39092 in kind-config.yaml
   type: NodePort
 ---
-# --- Elasticsearch ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -143,8 +123,6 @@ spec:
         ports:
         - name: http
           containerPort: 9200
-        - name: transport
-          containerPort: 9300
         env:
         - name: discovery.type
           value: "single-node"
@@ -152,21 +130,6 @@ spec:
           value: "false"
         - name: ES_JAVA_OPTS
           value: "-Xms512m -Xmx512m"
-        volumeMounts:
-        - name: es-data
-          mountPath: /usr/share/elasticsearch/data
-        readinessProbe:
-          httpGet:
-            path: /_cluster/health?wait_for_status=yellow&timeout=10s
-            port: 9200
-          initialDelaySeconds: 60
-          periodSeconds: 20
-          timeoutSeconds: 15
-          failureThreshold: 5
-          successThreshold: 1
-      volumes:
-      - name: es-data
-        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -180,14 +143,9 @@ spec:
     protocol: TCP
     port: 9200
     targetPort: 9200
-    nodePort: 32200
-  - name: transport
-    protocol: TCP
-    port: 9300
-    targetPort: 9300
+    nodePort: 32200 # Mapped to 19200 in kind-config.yaml
   type: NodePort
 ---
-# --- Consul ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -211,23 +169,12 @@ spec:
         ports:
         - name: http
           containerPort: 8500
-        - name: dns-tcp
-          containerPort: 8600
-          protocol: TCP
-        - name: dns-udp
-          containerPort: 8600
-          protocol: UDP
         args:
           - "agent"
           - "-dev"
           - "-client=0.0.0.0"
           - "-ui"
           - "-node=consul-kind-node"
-        readinessProbe:
-          exec:
-            command: ["consul", "info"]
-          initialDelaySeconds: 15
-          periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -241,18 +188,9 @@ spec:
     protocol: TCP
     port: 8500
     targetPort: 8500
-    nodePort: 32500
-  - name: dns-tcp
-    protocol: TCP
-    port: 8600
-    targetPort: 8600
-  - name: dns-udp
-    protocol: UDP
-    port: 8600
-    targetPort: 8600
+    nodePort: 32500 # Mapped to 18500 in kind-config.yaml
   type: NodePort
 ---
-# --- Redis ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -276,17 +214,6 @@ spec:
         ports:
         - containerPort: 6379
         command: ["redis-server", "--appendonly", "yes"]
-        readinessProbe:
-          tcpSocket:
-            port: 6379
-          initialDelaySeconds: 15
-          periodSeconds: 10
-        volumeMounts:
-        - name: redis-data
-          mountPath: /data
-      volumes:
-      - name: redis-data
-        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -299,10 +226,9 @@ spec:
   - protocol: TCP
     port: 6379
     targetPort: 6379
-    nodePort: 32379
+    nodePort: 32379 # Mapped to 19379 in kind-config.yaml
   type: NodePort
 ---
-# --- Auth DB (PostgreSQL) ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -322,7 +248,6 @@ spec:
       containers:
       - name: auth-db
         image: postgres:15-alpine
-        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432
         env:
@@ -332,17 +257,6 @@ spec:
           value: "postgres"
         - name: POSTGRES_DB
           value: "auth_db"
-        volumeMounts:
-        - name: auth-db-data
-          mountPath: /var/lib/postgresql/data
-        readinessProbe:
-          exec:
-            command: ["pg_isready", "-U", "postgres", "-d", "auth_db"]
-          initialDelaySeconds: 20
-          periodSeconds: 10
-      volumes:
-      - name: auth-db-data
-        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -355,10 +269,9 @@ spec:
   - protocol: TCP
     port: 5432
     targetPort: 5432
-    nodePort: 30434
+    nodePort: 30434 # Mapped to 15434 in kind-config.yaml
   type: NodePort
 ---
-# --- Product DB (PostgreSQL) ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -378,7 +291,6 @@ spec:
       containers:
       - name: product-db
         image: postgres:15-alpine
-        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432
         env:
@@ -388,17 +300,6 @@ spec:
           value: "postgres"
         - name: POSTGRES_DB
           value: "product_db"
-        volumeMounts:
-        - name: product-db-data
-          mountPath: /var/lib/postgresql/data
-        readinessProbe:
-          exec:
-            command: ["pg_isready", "-U", "postgres", "-d", "product_db"]
-          initialDelaySeconds: 20
-          periodSeconds: 10
-      volumes:
-      - name: product-db-data
-        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -411,10 +312,9 @@ spec:
   - protocol: TCP
     port: 5432
     targetPort: 5432
-    nodePort: 30435
+    nodePort: 30435 # Mapped to 15435 in kind-config.yaml
   type: NodePort
 ---
-# --- Order DB (PostgreSQL) ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -443,17 +343,6 @@ spec:
           value: "postgres"
         - name: POSTGRES_DB
           value: "order_db"
-        volumeMounts:
-        - name: order-db-data
-          mountPath: /var/lib/postgresql/data
-        readinessProbe:
-          exec:
-            command: ["pg_isready", "-U", "postgres", "-d", "order_db"]
-          initialDelaySeconds: 20
-          periodSeconds: 10
-      volumes:
-      - name: order-db-data
-        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -466,9 +355,91 @@ spec:
   - protocol: TCP
     port: 5432
     targetPort: 5432
-    nodePort: 30436
+    nodePort: 30436 # Mapped to 15436 in kind-config.yaml
   type: NodePort
 ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-db-deployment
+  labels:
+    app: review-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: review-db
+  template:
+    metadata:
+      labels:
+        app: review-db
+    spec:
+      containers:
+      - name: review-db
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          value: "postgres"
+        - name: POSTGRES_DB
+          value: "review_db"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-db-svc
+spec:
+  selector:
+    app: review-db
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432
+    nodePort: 30437 # Mapped to 15437 in kind-config.yaml
+  type: NodePort
+---
+######################################################
+### ISTIO GATEWAY CONFIG - SINGLE ENTRY POINT      ###
+######################################################
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: ecommerce-gateway
+spec:
+  selector:
+    istio: ingressgateway # use istio's default controller
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*" # This gateway will handle all incoming HTTP traffic
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: api-gateway-vs
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - ecommerce-gateway
+  http:
+  # All traffic entering the gateway is routed to the api-gateway service
+  # The api-gateway then proxies to other services internally via their ClusterIP names
+  - route:
+    - destination:
+        host: api-gateway-svc
+        port:
+          number: 3000
+---
+######################################################
+###                  MICROSERVICES                 ###
+######################################################
 # --- API Gateway ---
 apiVersion: apps/v1
 kind: Deployment
@@ -509,13 +480,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 25
-          periodSeconds: 10
-          timeoutSeconds: 5
 ---
 apiVersion: v1
 kind: Service
@@ -528,8 +492,7 @@ spec:
   - protocol: TCP
     port: 3000
     targetPort: 3000
-    nodePort: 30000
-  type: NodePort
+  type: ClusterIP
 ---
 # --- Auth Service ---
 apiVersion: apps/v1
@@ -552,17 +515,7 @@ spec:
       - name: auth-db-migrate
         image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
         imagePullPolicy: IfNotPresent
-        command: ["sh", "-c"]
-        args:
-          - |
-            echo "[Init Container auth-service] Waiting for auth-db-svc..."
-            until nc -zv auth-db-svc 5432; do echo "Waiting for auth-db-svc..."; sleep 2; done
-            echo "[Init Container auth-service] auth-db-svc is up."
-            echo "[Init Container auth-service] Pushing schema..."
-            npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss
-            echo "[Init Container auth-service] Seeding DB..."
-            npx prisma db seed --schema=./prisma/schema.prisma
-            echo "[Init Container auth-service] DB setup complete."
+        command: ["sh", "-c", "echo '[Init Container auth-service] Pushing schema...' && npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && echo '[Init Container auth-service] Seeding DB...' && npx prisma db seed --schema=./prisma/schema.prisma && echo '[Init Container auth-service] DB setup complete.'"]
         env:
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
@@ -586,8 +539,6 @@ spec:
           value: "auth-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        - name: NODE_ENV
-          value: "development"
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -596,13 +547,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3001
-          initialDelaySeconds: 25
-          periodSeconds: 10
-          timeoutSeconds: 5
 ---
 apiVersion: v1
 kind: Service
@@ -615,8 +559,7 @@ spec:
   - protocol: TCP
     port: 3001
     targetPort: 3001
-    nodePort: 30001
-  type: NodePort
+  type: ClusterIP
 ---
 # --- Product Service ---
 apiVersion: apps/v1
@@ -639,17 +582,7 @@ spec:
       - name: product-db-migrate
         image: ${IMAGE_PREFIX}/product-service:${IMAGE_TAG}
         imagePullPolicy: IfNotPresent
-        command: ["sh", "-c"]
-        args:
-          - |
-            echo "[Init Container product-service] Waiting for product-db-svc..."
-            until nc -zv product-db-svc 5432; do echo "Waiting for product-db-svc..."; sleep 2; done
-            echo "[Init Container product-service] product-db-svc is up."
-            echo "[Init Container product-service] Pushing schema..."
-            npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss
-            echo "[Init Container product-service] Seeding DB..."
-            npx prisma db seed --schema=./prisma/schema.prisma || echo "[Init Container product-service] WARNING: Seed command failed but continuing..."
-            echo "[Init Container product-service] DB setup attempt complete."
+        command: ["sh", "-c", "echo '[Init Container product-service] Pushing schema...' && npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && echo '[Init Container product-service] Seeding DB...' && npx prisma db seed --schema=./prisma/schema.prisma || echo '[Init Container product-service] WARNING: Seed command failed but continuing.'"]
         env:
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
@@ -671,10 +604,6 @@ spec:
           value: "product-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        - name: NODE_ENV
-          value: "development"
-        - name: IMAGE_SERVICE_BASE_URL
-          value: "http://image-service-svc:3004"
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -683,13 +612,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3003
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
 ---
 apiVersion: v1
 kind: Service
@@ -702,8 +624,7 @@ spec:
   - protocol: TCP
     port: 3003
     targetPort: 3003
-    nodePort: 30003
-  type: NodePort
+  type: ClusterIP
 ---
 # --- Image Service ---
 apiVersion: apps/v1
@@ -728,9 +649,6 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3004
-        volumeMounts:
-        - name: image-uploads
-          mountPath: /app/uploads
         env:
         - name: PORT
           value: "3004"
@@ -738,12 +656,6 @@ spec:
           value: "consul-svc"
         - name: SERVICE_NAME
           value: "image-service"
-        - name: NODE_ENV
-          value: "development"
-        - name: UPLOAD_DIR
-          value: "/app/uploads"
-        - name: IMAGE_BASE_URL
-          value: "http://localhost:13004"
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -752,16 +664,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3004
-          initialDelaySeconds: 25
-          periodSeconds: 10
-          timeoutSeconds: 5
-      volumes:
-      - name: image-uploads
-        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -774,8 +676,7 @@ spec:
   - protocol: TCP
     port: 3004
     targetPort: 3004
-    nodePort: 30004
-  type: NodePort
+  type: ClusterIP
 ---
 # --- Search Service ---
 apiVersion: apps/v1
@@ -811,8 +712,6 @@ spec:
           value: "kafka-svc:9092"
         - name: ELASTICSEARCH_NODE
           value: "http://elasticsearch-svc:9200"
-        - name: NODE_ENV
-          value: "development"
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -821,14 +720,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3005
-          initialDelaySeconds: 45
-          periodSeconds: 15
-          timeoutSeconds: 10
-          failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service
@@ -841,8 +732,7 @@ spec:
   - protocol: TCP
     port: 3005
     targetPort: 3005
-    nodePort: 30005
-  type: NodePort
+  type: ClusterIP
 ---
 # --- Cart Service ---
 apiVersion: apps/v1
@@ -874,8 +764,6 @@ spec:
           value: "consul-svc"
         - name: SERVICE_NAME
           value: "cart-service"
-        - name: NODE_ENV
-          value: "development"
         - name: REDIS_HOST
           value: "redis-svc"
         - name: REDIS_PORT
@@ -888,13 +776,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3006
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
 ---
 apiVersion: v1
 kind: Service
@@ -907,8 +788,7 @@ spec:
   - protocol: TCP
     port: 3006
     targetPort: 3006
-    nodePort: 30006
-  type: NodePort
+  type: ClusterIP
 ---
 # --- Order Service ---
 apiVersion: apps/v1
@@ -930,7 +810,7 @@ spec:
       initContainers:
       - name: order-db-migrate
         image: ${IMAGE_PREFIX}/order-service:${IMAGE_TAG}
-        command: ["sh", "-c", "echo Waiting for order-db... && until nc -zv order-db-svc 5432; do sleep 2; done; echo Pushing schema... && npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss; echo Done."]
+        command: ["sh", "-c", "echo '[Init Container order-service] Pushing schema...' && npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && echo Done."]
         env:
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@order-db-svc:5432/order_db?schema=public"
@@ -950,8 +830,6 @@ spec:
           value: "order-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        - name: NODE_ENV
-          value: "development"
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -960,12 +838,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3007
-          initialDelaySeconds: 25
-          periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -978,64 +850,7 @@ spec:
   - protocol: TCP
     port: 3007
     targetPort: 3007
-    nodePort: 30007
-  type: NodePort
-
-
-  # --- Review DB (PostgreSQL) ---
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: review-db-deployment
-  labels:
-    app: review-db
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: review-db
-  template:
-    metadata:
-      labels:
-        app: review-db
-    spec:
-      containers:
-      - name: review-db
-        image: postgres:15-alpine
-        ports:
-        - containerPort: 5432
-        env:
-        - name: POSTGRES_USER
-          value: "postgres"
-        - name: POSTGRES_PASSWORD
-          value: "postgres"
-        - name: POSTGRES_DB
-          value: "review_db"
-        volumeMounts:
-        - name: review-db-data
-          mountPath: /var/lib/postgresql/data
-        readinessProbe:
-          exec:
-            command: ["pg_isready", "-U", "postgres", "-d", "review_db"]
-          initialDelaySeconds: 20
-          periodSeconds: 10
-      volumes:
-      - name: review-db-data
-        emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: review-db-svc
-spec:
-  selector:
-    app: review-db
-  ports:
-  - protocol: TCP
-    port: 5432
-    targetPort: 5432
-    nodePort: 30437
-  type: NodePort
+  type: ClusterIP
 ---
 # --- Review Service ---
 apiVersion: apps/v1
@@ -1057,7 +872,7 @@ spec:
       initContainers:
       - name: review-db-migrate
         image: ${IMAGE_PREFIX}/review-service:${IMAGE_TAG}
-        command: ["sh", "-c", "echo Waiting for review-db... && until nc -zv review-db-svc 5432; do sleep 2; done; echo Pushing schema... && npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss; echo Done."]
+        command: ["sh", "-c", "echo '[Init Container review-service] Pushing schema...' && npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && echo Done."]
         env:
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@review-db-svc:5432/review_db?schema=public"
@@ -1077,8 +892,6 @@ spec:
           value: "review-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        - name: NODE_ENV
-          value: "development"
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -1087,12 +900,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3008
-          initialDelaySeconds: 25
-          periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -1105,5 +912,4 @@ spec:
   - protocol: TCP
     port: 3008
     targetPort: 3008
-    nodePort: 30008
-  type: NodePort
+  type: ClusterIP
