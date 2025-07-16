@@ -1,6 +1,6 @@
 // Jenkinsfile
 
-def CUSTOM_SERVICES = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service', 'cart-service', 'order-service'] 
+def CUSTOM_SERVICES = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service', 'cart-service', 'order-service', 'review-service'] 
 def PUBLIC_IMAGES = [
     'postgres:15-alpine',
     'confluentinc/cp-zookeeper:7.3.2',
