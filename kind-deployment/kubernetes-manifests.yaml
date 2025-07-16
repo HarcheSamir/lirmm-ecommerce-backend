@@ -94,6 +94,8 @@ spec:
           value: "9999"
         - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
           value: "true"
+        - name: KAFKA_DEFAULT_REPLICATION_FACTOR
+          value: "1"
         readinessProbe:
           tcpSocket:
             port: 9092
