@@ -3,13 +3,12 @@ const cors = require('cors');
 const morgan = require('morgan');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const errorHandler = require('../middlewares/errorHandler');
-const { findService } = require('./consul'); // Keep consul for the fallback
+const { findService } = require('./consul');
 
 const app = express();
 
 const IS_IN_KUBERNETES = !!process.env.KUBERNETES_SERVICE_HOST;
 
-// --- Service-to-URL Mapping for Kubernetes ---
 const KUBERNETES_SERVICE_URLS = {
     'auth-service': 'http://auth-service-svc:3001',
     'product-service': 'http://product-service-svc:3003',
@@ -24,24 +23,20 @@ app.use(cors());
 app.use(morgan('dev'));
 
 app.get('/', (req, res) => {
-    res.json({ message: `${process.env.SERVICE_NAME || 'API Gateway'} online (K8s: ${IS_IN_KUBERNETES})` });
+    res.json({ message: `${process.env.SERVICE_NAME || 'API Gateway'} online (K8s mode: ${IS_IN_KUBERNETES})` });
 });
 
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'UP', service: process.env.SERVICE_NAME });
 });
 
-// This createProxy function is now environment-aware.
 const createProxy = (serviceName, pathRewriteRules = null) => {
     return createProxyMiddleware({
-        // The router function dynamically chooses the target URL.
         router: async (req) => {
             if (IS_IN_KUBERNETES) {
-                // In Kubernetes, use the fast and reliable internal DNS name.
                 console.log(`[K8s Proxy] Routing to static URL for ${serviceName}`);
                 return KUBERNETES_SERVICE_URLS[serviceName];
             } else {
-                // In Docker Compose, use Consul to discover the service.
                 console.log(`[Consul Proxy] Discovering and routing to ${serviceName}`);
                 const targetUrl = await findService(serviceName);
                 if (!targetUrl) {
@@ -51,16 +46,19 @@ const createProxy = (serviceName, pathRewriteRules = null) => {
             }
         },
         changeOrigin: true,
-        logLevel: 'info',
+        logLevel: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
         pathRewrite: pathRewriteRules,
-        onError: (err, req, res) => {
+        onError: (err, req, res, next) => {
             console.error(`[API Gateway] Proxy Error to ${serviceName}:`, err.message);
-            res.status(503).json({ message: `Service '${serviceName}' is unavailable.` });
+            if (!res.headersSent) {
+                res.status(503).json({ message: `Service '${serviceName}' is unavailable.` });
+            } else {
+                next(err);
+            }
         },
     });
 };
 
-// Setup proxies. This code doesn't need to change.
 app.use('/auth', createProxy('auth-service'));
 app.use('/products', createProxy('product-service'));
 app.use('/images', createProxy('image-service', { '^/images': '' }));

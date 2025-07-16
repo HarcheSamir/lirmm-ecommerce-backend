@@ -1,7 +1,6 @@
 const Consul = require('consul');
 const os = require('os');
 
-// --- Environment-based Configuration ---
 const CONSUL_AGENT_HOST = process.env.CONSUL_AGENT_HOST;
 const SERVICE_NAME = process.env.SERVICE_NAME;
 const SERVICE_PORT = parseInt(process.env.PORT, 10);
@@ -9,7 +8,6 @@ const POD_IP = process.env.POD_IP;
 const POD_HOSTNAME = process.env.POD_HOSTNAME;
 const IS_IN_KUBERNETES = !!POD_IP;
 
-// --- Determine Service ID and Registration Address ---
 let serviceAddressForRegistration;
 let serviceId;
 
@@ -17,7 +15,6 @@ if (IS_IN_KUBERNETES) {
     serviceAddressForRegistration = POD_IP;
     serviceId = `${SERVICE_NAME}-${POD_HOSTNAME || os.hostname()}`;
 } else {
-    // For Docker Compose
     serviceAddressForRegistration = SERVICE_NAME;
     serviceId = `${SERVICE_NAME}-${os.hostname()}`;
 }
@@ -26,16 +23,13 @@ if (!SERVICE_NAME || !SERVICE_PORT || !CONSUL_AGENT_HOST) {
     console.error(`[Consul] FATAL: Missing required environment variables.`);
     process.exit(1);
 }
+
 if (IS_IN_KUBERNETES && !POD_IP) {
     console.error(`[Consul] FATAL: In Kubernetes but POD_IP is not set. Exiting.`);
     process.exit(1);
 }
 
-const consul = new Consul({
-    host: CONSUL_AGENT_HOST,
-    port: 8500,
-    promisify: true,
-});
+const consul = new Consul({ host: CONSUL_AGENT_HOST, port: 8500, promisify: true });
 
 const registerService = async (maxRetries = 5, retryDelayMs = 3000) => {
     const serviceDefinition = {
@@ -45,11 +39,6 @@ const registerService = async (maxRetries = 5, retryDelayMs = 3000) => {
         port: SERVICE_PORT,
         tags: [SERVICE_NAME, `env:${process.env.NODE_ENV || 'unknown'}`],
         check: {
-            // THE CRITICAL FIX IS HERE:
-            // The health check is now performed against localhost *inside the pod*.
-            // The Istio proxy intercepts this call correctly and routes it to the
-            // application container listening on the same port. This is the standard
-            // and most reliable method in a service mesh.
             http: `http://localhost:${SERVICE_PORT}/health`,
             interval: '15s',
             timeout: '5s',
@@ -74,13 +63,40 @@ const registerService = async (maxRetries = 5, retryDelayMs = 3000) => {
     }
 };
 
-// No changes to deregister or findService
-const deregisterService = async (signal = 'UNKNOWN') => { /* ... no changes ... */ };
+const deregisterService = async (signal = 'UNKNOWN') => {
+    console.log(`[Consul] Received ${signal}. Deregistering ${serviceId}...`);
+    try {
+        await consul.agent.service.deregister(serviceId);
+        console.log(`[Consul] Service ${serviceId} deregistered.`);
+    } catch (err) {
+        console.error(`[Consul] Failed to deregister ${serviceId}:`, err.message);
+    } finally {
+        process.exit(0);
+    }
+};
+
 process.on('SIGINT', () => deregisterService('SIGINT'));
 process.on('SIGTERM', () => deregisterService('SIGTERM'));
-const findService = async (targetServiceName) => { /* ... no changes ... */ };
 
-// THE EXPORTS ARE ALSO WRONG IN THE PREVIOUS VERSION. This is the correct set.
+const findService = async (targetServiceName) => {
+    try {
+        const services = await consul.health.service({ service: targetServiceName, passing: true });
+        if (!services || services.length === 0) {
+            console.warn(`[Consul] Discovery: No healthy instances found for ${targetServiceName}`);
+            return null;
+        }
+        
+        const instance = services[Math.floor(Math.random() * services.length)];
+        const address = instance.Service.Address;
+        const port = instance.Service.Port;
+        return `http://${address}:${port}`;
+
+    } catch (error) {
+        console.error(`[Consul] Error finding service ${targetServiceName}:`, error.message);
+        throw new Error(`Consul discovery failed for ${targetServiceName}`);
+    }
+};
+
 module.exports = {
     registerService,
     findService,
