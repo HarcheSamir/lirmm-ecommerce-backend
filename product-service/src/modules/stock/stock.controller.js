@@ -7,7 +7,7 @@ const { fetchAndFormatProductForKafka } = require('../product/product.controller
 const adjustStock = async (req, res, next) => {
     try {
         const { variantId } = req.params;
-        const { changeQuantity, type, reason, relatedOrderId } = req.body;
+        const { changeQuantity, type, reason, relatedOrderId, timestamp } = req.body;
 
         if (changeQuantity === undefined || !type) {
              return res.status(400).json({ message: 'changeQuantity and type are required.' });
@@ -16,14 +16,6 @@ const adjustStock = async (req, res, next) => {
          if (isNaN(quantity)) {
              return res.status(400).json({ message: 'changeQuantity must be an integer.' });
         }
-
-        // The validation for 'type' is implicitly handled by the database enum.
-        // The application-level check that was causing a crash remains disabled.
-        // const { Prisma } = require('@prisma/client');
-        // const validTypes = Object.values(Prisma.StockMovementType);
-        // if (!validTypes.includes(type)) {
-        //      return res.status(400).json({ message: `Invalid stock movement type.` });
-        // }
 
         let productId = null;
 
@@ -41,7 +33,14 @@ const adjustStock = async (req, res, next) => {
             if (quantity < 0 && newStock < 0) { throw new Error('InsufficientStock'); }
 
             const movement = await tx.stockMovement.create({
-                data: { variantId, changeQuantity: quantity, type, reason, relatedOrderId }
+                data: {
+                    variantId,
+                    changeQuantity: quantity,
+                    type,
+                    reason,
+                    relatedOrderId,
+                    timestamp: timestamp ? new Date(timestamp) : undefined
+                }
             });
             const updatedVariant = await tx.variant.update({
                 where: { id: variantId }, data: { stockQuantity: newStock }
@@ -69,7 +68,6 @@ const adjustStock = async (req, res, next) => {
         if (err.message === 'InsufficientStock') {
              return res.status(400).json({ message: 'Insufficient stock for the requested decrease.' });
         }
-        // This will catch the DB error if an invalid `type` string is sent
         if (err.code === 'P2003' || err.message?.includes("invalid input value for enum")) {
             return res.status(400).json({ message: `Invalid 'type' provided for stock movement.` });
         }

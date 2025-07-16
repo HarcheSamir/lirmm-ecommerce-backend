@@ -1,7 +1,7 @@
 // ===== FILE: auth-service/src/modules/user/user.routes.js =====
 
 const express = require('express');
-const { getAllUsers, getUserById, updateUser, deactivateUser, activateUser } = require('./user.controller');
+const { getAllUsers, getUserById, updateUser, deactivateUser, activateUser} = require('./user.controller');
 const authMiddleware = require('../../middlewares/auth');
 const hasPermission = require('../../middlewares/permission');
 

@@ -12,12 +12,29 @@ const fetchAndFormatProductForKafka = async (productId) => {
         }
     });
     if (!product) { console.warn(`[Kafka Helper] Product ${productId} not found.`); return null; }
-    const categories = product.categories || []; const variants = product.variants || []; const images = product.images || [];
-    const category_names = categories.map(pc => pc.category?.name).filter(Boolean); const category_slugs = categories.map(pc => pc.category?.slug).filter(Boolean);
     
+    const categories = product.categories || [];
+    const variants = product.variants || [];
+    const images = product.images || [];
+
+    const category_names = categories.map(pc => pc.category?.name).filter(Boolean);
+    const category_slugs = categories.map(pc => pc.category?.slug).filter(Boolean);
+    
+    const primaryImage = images.find(img => img.isPrimary === true) || images[0] || null;
+
     const kafkaPayload = {
-        id: product.id, sku: product.sku, name: product.name, description: product.description, isActive: product.isActive, createdAt: product.createdAt, updatedAt: product.updatedAt,
-        category_names: category_names, category_slugs: category_slugs,
+        id: product.id,
+        sku: product.sku,
+        name: product.name,
+        description: product.description,
+        isActive: product.isActive,
+        createdAt: product.createdAt,
+        updatedAt: product.updatedAt,
+        averageRating: product.averageRating,
+        reviewCount: product.reviewCount,
+        primaryImageUrl: primaryImage ? primaryImage.imageUrl : null,
+        category_names: category_names,
+        category_slugs: category_slugs,
         variants: variants.map(v => ({ id: v.id, attributes: v.attributes || {}, price: v.price, stockQuantity: v.stockQuantity })),
         variant_attributes_flat: variants.flatMap(v => Object.entries(v.attributes || {}).map(([key, value]) => `${key}:${value}`)).filter((v, i, a) => a.indexOf(v) === i),
         images: images.map(img => ({
@@ -143,7 +160,7 @@ const createProduct = async (req, res, next) => {
         }
         const fullProductResponse = await prisma.product.findUnique({ where: { id: newProduct.id }, include: { variants: true, categories: { include: { category: true } }, images: true } });
         if (!fullProductResponse) {
-             return res.status(404).json({ message: 'Product created but could not be retrieved.' });
+            return res.status(404).json({ message: 'Product created but could not be retrieved.' });
         }
         res.status(201).json(fullProductResponse);
     } catch (err) {
@@ -207,7 +224,7 @@ const getProducts = async (req, res, next) => {
                 });
             });
         }
-        
+
         if (where.AND.length === 0) {
             delete where.AND;
         }
@@ -415,6 +432,35 @@ const removeImagesFromProduct = async (req, res, next) => {
     }
 };
 
+const resyncAllProducts = async (req, res, next) => {
+    try {
+        console.log("Starting product re-sync process...");
+        const allProducts = await prisma.product.findMany({ select: { id: true } });
+
+        if (!allProducts || allProducts.length === 0) {
+            return res.status(200).json({ message: 'No products found to re-sync.', broadcasted: 0 });
+        }
+
+        let successCount = 0;
+        for (const p of allProducts) {
+            const kafkaPayload = await fetchAndFormatProductForKafka(p.id);
+            if (kafkaPayload) {
+                await sendMessage('PRODUCT_UPDATED', kafkaPayload, p.id);
+                successCount++;
+            }
+        }
+
+        console.log(`Successfully broadcasted ${successCount} product events to Kafka.`);
+        res.status(200).json({
+            message: 'Product re-sync completed successfully.',
+            broadcasted: successCount,
+        });
+    } catch (err) {
+        console.error("Error during product re-sync:", err);
+        next(err);
+    }
+};
+
 module.exports = {
     createManyProducts,
     createProduct,
@@ -427,5 +473,6 @@ module.exports = {
     removeCategoriesFromProduct,
     addImagesToProduct,
     removeImagesFromProduct,
-    fetchAndFormatProductForKafka
+    fetchAndFormatProductForKafka,
+    resyncAllProducts
 };

@@ -212,10 +212,13 @@ const activateUser = async (req, res, next) => {
     }
 };
 
+
+
+
 module.exports = {
   getAllUsers,
   getUserById,
   updateUser,
   deactivateUser,
-  activateUser,
+  activateUser
 };

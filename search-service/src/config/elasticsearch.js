@@ -40,6 +40,8 @@ const indexSettingsAndMappings = {
             isActive: { type: "boolean" },
             createdAt: { type: "date" },
             updatedAt: { type: "date" },
+            averageRating: { type: "half_float" }, 
+            reviewCount: { type: "integer" }, 
             category_names: { type: "text", analyzer: "default_analyzer" },
             category_slugs: { type: "keyword" },
             variants: {

@@ -6,32 +6,35 @@ const {
     getMyOrders,
     getOrderById,
     getAllOrders,
-    updateOrderStatus
+    updateOrderStatus,
+    verifyPurchase,
+    seedGuestOrders
 } = require('./order.controller');
 const authMiddleware = require('../../middlewares/auth');
 const optionalAuthMiddleware = require('../../middlewares/optionalAuth');
 const hasPermission = require('../../middlewares/permission');
-const adminOnlyMiddleware = require('../../middlewares/adminOnly'); // Using the simplified admin check
+const adminOnlyMiddleware = require('../../middlewares/adminOnly');
 
 const router = express.Router();
 
+// --- INTERNAL ON-DEMAND SEEDING ROUTE ---
+router.post('/internal/seed-orders', seedGuestOrders);
+
 
 // --- PUBLIC ROUTES ---
-// ANYONE CAN DO THESE. NO TOKEN. NO AUTH.
-router.post('/', optionalAuthMiddleware, createOrder); // Optional auth for logged-in users
+router.post('/', optionalAuthMiddleware, createOrder);
 router.post('/guest-lookup', getGuestOrder);
-router.get('/:id', getOrderById); // <-- THE FUCKING MIDDLEWARE IS GONE. ANYONE CAN VIEW.
+router.get('/:id', getOrderById);
+router.get('/', getAllOrders);
 
 
 // --- PROTECTED ROUTES ---
-// These require a valid token.
-
-// This route MUST be protected because it's specific to "my" orders.
 router.get('/my-orders', authMiddleware, hasPermission('read:my-orders'), getMyOrders);
 
-// ADMIN-ONLY ROUTES
-router.get('/', adminOnlyMiddleware, getAllOrders);
+// --- ADMIN-ONLY ROUTES ---
 router.put('/:id/status', adminOnlyMiddleware, updateOrderStatus);
 
+// --- INTERNAL SERVICE-TO-SERVICE ROUTE ---
+router.get('/internal/verify-purchase', verifyPurchase);
 
 module.exports = router;

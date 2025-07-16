@@ -22,7 +22,7 @@ router.get('/slug/:slug', getCategoryBySlug);
 
 // --- Protected Routes ---
 router.post('/', authMiddleware, hasPermission('create:category'), createCategory);
-router.post('/bulk', authMiddleware, hasPermission('create:category'), createManyCategories);
+router.post('/bulk',  createManyCategories);
 router.put('/:id', authMiddleware, hasPermission('update:category'), updateCategory);
 router.delete('/:id', authMiddleware, hasPermission('delete:category'), deleteCategory);
 

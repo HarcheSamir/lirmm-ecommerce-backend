@@ -1,4 +1,7 @@
 const prisma = require('../../config/prisma');
+const axios = require('axios');
+const { faker } = require('@faker-js/faker');
+const { findService } = require('../../config/consul');
 
 const createError = (message, statusCode) => {
   const error = new Error(message);
@@ -59,7 +62,7 @@ const enrichOrders = async (orders) => {
 };
 
 const createOrder = async (req, res, next) => {
-  const { items, shippingAddress, guestEmail, guestName, phone, paymentMethod } = req.body;
+  const { items, shippingAddress, guestEmail, guestName, phone, paymentMethod, overrideCreatedAt } = req.body;
   const email = req.user?.email || guestEmail;
 
   if (!email) {
@@ -73,7 +76,7 @@ const createOrder = async (req, res, next) => {
   }
 
   try {
-    const productSvcUrl = "http://product-service:3003"; // Hardcoded for simplicity in this example
+    const productSvcUrl = await findService('product-service');
     if (!productSvcUrl) {
       throw createError('Product service is currently unavailable for stock adjustment.', 503);
     }
@@ -86,8 +89,8 @@ const createOrder = async (req, res, next) => {
       const localProductMap = new Map(localProducts.map(p => [p.id, p]));
 
       let totalAmount = 0;
-      const shippingCost = 9.18;
       const initialStatus = paymentMethod === 'CASH_ON_DELIVERY' ? 'PENDING' : 'PAID';
+      const creationDate = overrideCreatedAt ? new Date(overrideCreatedAt) : undefined;
 
       const order = await tx.order.create({
         data: {
@@ -98,21 +101,23 @@ const createOrder = async (req, res, next) => {
           shippingAddress,
           paymentMethod,
           totalAmount: 0,
-          status: 'PENDING'
+          status: 'PENDING',
+          createdAt: creationDate,
+          updatedAt: creationDate
         }
       });
 
       for (const item of items) {
         const localProduct = localProductMap.get(item.productId);
-        if (!localProduct) throw createError(`Product with ID ${item.productId} not found. The system may be syncing.`, 404);
+        if (!localProduct) throw createError(`Product with ID ${item.productId} not found.`, 404);
 
         const stockAdjustUrl = `${productSvcUrl}/stock/adjust/${item.variantId}`;
-        const axios = require('axios');
         await axios.post(stockAdjustUrl, {
           changeQuantity: -item.quantity,
           type: 'ORDER',
           reason: `Order placement: ${order.id}`,
-          relatedOrderId: order.id
+          relatedOrderId: order.id,
+          timestamp: creationDate
         });
 
         totalAmount += (item.price * item.quantity);
@@ -132,7 +137,7 @@ const createOrder = async (req, res, next) => {
         });
       }
 
-      const finalTotal = totalAmount + shippingCost;
+      const finalTotal = totalAmount;
       await tx.order.update({
         where: { id: order.id },
         data: {
@@ -151,7 +156,7 @@ const createOrder = async (req, res, next) => {
 
     res.status(201).json(finalOrder);
   } catch (error) {
-    const message = error.response?.data?.message || error.message || 'A downstream service failed. The order has been rolled back.';
+    const message = error.response?.data?.message || error.message || 'A downstream service failed.';
     const status = error.statusCode || error.response?.status || 503;
     return next(createError(message, status));
   }
@@ -273,11 +278,165 @@ const getGuestOrder = async (req, res, next) => {
   }
 };
 
+const verifyPurchase = async (req, res, next) => {
+    try {
+        const { userId, productId } = req.query;
+        if (!userId || !productId) {
+            return res.status(400).json({ message: 'userId and productId query parameters are required.' });
+        }
+
+        const orderCount = await prisma.order.count({
+            where: {
+                userId: userId,
+                status: 'DELIVERED',
+                items: {
+                    some: {
+                        productId: productId,
+                    },
+                },
+            },
+        });
+
+        res.json({ verified: orderCount > 0 });
+    } catch (err) {
+        next(err);
+    }
+};
+
+const seedGuestOrders = async (req, res, next) => {
+    const count = parseInt(req.query.count, 10) || 10;
+    let products = [];
+    let successCount = 0;
+    let failureCount = 0;
+    const errors = [];
+
+    try {
+        const productSvcUrl = await findService('product-service');
+        if (!productSvcUrl) {
+            return res.status(503).json({ message: 'Product service is unavailable.' });
+        }
+        
+        const response = await axios.get(`${productSvcUrl}/?limit=200&inStock=true`);
+        products = response.data.data.filter(p => p.isActive && p.variants && p.variants.some(v => v.stockQuantity > 0));
+
+        if (products.length === 0) {
+            return res.status(404).json({ message: 'No active, in-stock products with variants found to create orders from.' });
+        }
+
+    } catch (error) {
+        return next(new Error(`Failed to fetch products: ${error.message}`));
+    }
+
+    const orderCreationPromises = [];
+
+    for (let i = 0; i < count; i++) {
+        try {
+            const numItems = faker.number.int({ min: 2, max: 4 });
+            const orderItems = [];
+            const tempStockMap = new Map();
+
+            for (let j = 0; j < numItems; j++) {
+                const randomProduct = faker.helpers.arrayElement(products);
+                
+                const availableVariants = randomProduct.variants.filter(v => {
+                    const currentStock = tempStockMap.get(v.id) ?? v.stockQuantity;
+                    return currentStock > 0;
+                });
+                if (availableVariants.length === 0) continue;
+
+                const randomVariant = faker.helpers.arrayElement(availableVariants);
+
+                if (!orderItems.some(item => item.variantId === randomVariant.id)) {
+                    const stock = tempStockMap.get(randomVariant.id) ?? randomVariant.stockQuantity;
+                    const maxQuantity = Math.min(stock, 3);
+                    const orderQuantity = faker.number.int({ min: 1, max: maxQuantity });
+                    
+                    orderItems.push({
+                        productId: randomProduct.id,
+                        variantId: randomVariant.id,
+                        quantity: orderQuantity,
+                        price: randomVariant.price,
+                        attributes: randomVariant.attributes,
+                    });
+
+                    tempStockMap.set(randomVariant.id, stock - orderQuantity);
+                }
+            }
+
+            if (orderItems.length === 0) {
+                failureCount++;
+                errors.push("Could not find available in-stock products for an order.");
+                continue;
+            }
+
+            const oneYearAgo = new Date();
+            oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+            const randomPastDate = faker.date.between({ from: oneYearAgo, to: new Date() });
+
+            const mockRequest = {
+                body: {
+                    guestName: faker.person.fullName(),
+                    guestEmail: faker.internet.email(),
+                    phone: faker.phone.number(),
+                    paymentMethod: faker.helpers.arrayElement(['CREDIT_CARD', 'CASH_ON_DELIVERY']),
+                    shippingAddress: {
+                        street: faker.location.streetAddress(),
+                        city: faker.location.city(),
+                        postalCode: faker.location.zipCode(),
+                        country: faker.location.country(),
+                    },
+                    items: orderItems,
+                    overrideCreatedAt: randomPastDate,
+                },
+                user: null
+            };
+
+            const promise = new Promise((resolve) => {
+                const mockRes = {
+                    status: (code) => ({
+                        json: (data) => {
+                            resolve({ success: code < 300, data });
+                        }
+                    }),
+                };
+                const mockNext = (err) => {
+                    resolve({ success: false, data: { message: err.message } });
+                };
+                createOrder(mockRequest, mockRes, mockNext);
+            });
+            orderCreationPromises.push(promise);
+
+        } catch (err) {
+            failureCount++;
+            errors.push(`Seeding loop error: ${err.message}`);
+        }
+    }
+
+    const results = await Promise.all(orderCreationPromises);
+    results.forEach(result => {
+        if (result.success) {
+            successCount++;
+        } else {
+            failureCount++;
+            errors.push(result.data.message || 'Unknown order creation error.');
+        }
+    });
+
+    res.status(200).json({
+        message: 'Order seeding process completed.',
+        seeded: successCount,
+        failed: failureCount,
+        errors: errors,
+    });
+};
+
 module.exports = {
   createOrder,
   getGuestOrder,
   getMyOrders,
   getOrderById,
   getAllOrders,
-  updateOrderStatus
+  updateOrderStatus,
+  verifyPurchase,
+  seedGuestOrders
 };

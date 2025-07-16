@@ -1,0 +1,48 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int
+  title     String?
+  comment   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  isVerifiedPurchase Boolean @default(false)
+
+  userId    String
+  productId String
+
+  user    DenormalizedUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product DenormalizedProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+}
+
+model DenormalizedUser {
+  id           String   @id
+  name         String
+  profileImage String?
+  reviews      Review[]
+
+  @@map("denormalized_users")
+}
+
+model DenormalizedProduct {
+  id       String   @id
+  name     String
+  sku      String
+  imageUrl String?
+  reviews  Review[]
+
+  @@map("denormalized_products")
+}

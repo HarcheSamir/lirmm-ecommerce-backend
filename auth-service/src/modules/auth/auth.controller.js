@@ -24,14 +24,12 @@ const register = async (req, res, next) => {
       data: { name, email, password: hashedPassword, roleId: role.id, profileImage },
     });
 
-    // --- Send Kafka Event with Email ---
     await sendMessage('USER_CREATED', {
       id: newUser.id,
       name: newUser.name,
       email: newUser.email,
       profileImage: newUser.profileImage
     });
-    // --- End Kafka Event ---
 
     const userForToken = await prisma.user.findUnique({
       where: { id: newUser.id },
@@ -57,7 +55,7 @@ const register = async (req, res, next) => {
     };
 
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' });
-    
+
     res.status(201).json({ token });
 
   } catch (err) {
@@ -154,4 +152,48 @@ const validateToken = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { register, login, me, validateToken };
+const resyncAllUsers = async (req, res, next) => {
+  try {
+    console.log("Starting user re-sync process...");
+    const allUsers = await prisma.user.findMany();
+
+    if (!allUsers || allUsers.length === 0) {
+      console.log("No users found in the database to re-sync.");
+      return res.status(200).json({
+        message: 'No users found to re-sync.',
+        broadcasted: 0,
+      });
+    }
+
+    let successCount = 0;
+    for (const user of allUsers) {
+      const payload = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        profileImage: user.profileImage,
+      };
+      await sendMessage('USER_UPDATED', payload);
+      successCount++;
+    }
+
+    console.log(`Successfully broadcasted ${successCount} user events to Kafka.`);
+    res.status(200).json({
+      message: 'User re-sync completed successfully.',
+      broadcasted: successCount,
+    });
+  } catch (err) {
+    console.error("Error during user re-sync:", err);
+    next(err);
+  }
+};
+
+
+
+module.exports = { 
+  register, 
+  login, 
+  me, 
+  validateToken,
+  resyncAllUsers 
+};

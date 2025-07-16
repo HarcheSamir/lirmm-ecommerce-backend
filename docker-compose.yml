@@ -118,6 +118,8 @@ services:
         condition: service_started
       cart-service:
         condition: service_started
+      review-service: # <-- ADD DEPENDENCY
+        condition: service_started
     environment:
       PORT: 3000
       CONSUL_AGENT_HOST: consul-agent
@@ -320,6 +322,41 @@ services:
         - action: rebuild
           path: ./order-service/package.json
 
+  review-service:
+    build: ./review-service
+    container_name: review-service-dev
+    ports:
+      - "3008:3008"
+    depends_on:
+      review-db:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      order-service:
+        condition: service_started
+    networks:
+      - microservices-network
+    environment:
+      PORT: 3008
+      DATABASE_URL: postgresql://postgres:postgres@review-db:5432/review_db?schema=public
+      CONSUL_AGENT_HOST: consul-agent
+      SERVICE_NAME: review-service
+      NODE_ENV: development
+      KAFKA_BROKERS: kafka-dev:9092
+    command: npm run dev
+    develop:
+      watch:
+        - action: sync
+          path: ./review-service/src
+          target: /app/src
+        - action: sync
+          path: ./review-service/prisma/schema.prisma
+          target: /app/prisma/schema.prisma
+        - action: rebuild
+          path: ./review-service/package.json
+
   auth-db:
     image: postgres:15-alpine
     container_name: auth-db
@@ -377,6 +414,25 @@ services:
       timeout: 5s
       retries: 5
 
+  review-db:
+    image: postgres:15-alpine
+    container_name: review-db
+    ports:
+      - "5437:5432" # Use a new host port
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: review_db
+    volumes:
+      - review-db-data:/var/lib/postgresql/data
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d review_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 networks:
   microservices-network:
     driver: bridge
@@ -388,3 +444,4 @@ volumes:
   image-uploads-data:
   redis-data-dev:
   order-db-data:
+  review-db-data:

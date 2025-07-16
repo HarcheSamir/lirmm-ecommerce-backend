@@ -13,10 +13,11 @@ const {
     removeCategoriesFromProduct,
     addImagesToProduct,
     removeImagesFromProduct,
+    resyncAllProducts,
 } = require('./product.controller');
 const variantRoutes = require('../variant/variant.routes');
 const authMiddleware = require('../../middlewares/auth');
-const hasPermission = require('../../middlewares/permission'); // <-- NEW
+const hasPermission = require('../../middlewares/permission');
 
 const router = express.Router();
 
@@ -27,9 +28,12 @@ router.get('/sku/:sku', getProductBySku);
 
 // --- Protected Routes (Auth and Permissions Required) ---
 router.post('/', authMiddleware, hasPermission('create:product'), createProduct);
-router.post('/bulk', authMiddleware, hasPermission('create:product'), createManyProducts);
+router.post('/bulk', createManyProducts);
 router.put('/:id', authMiddleware, hasPermission('update:product'), updateProduct);
 router.delete('/:id', authMiddleware, hasPermission('delete:product'), deleteProduct);
+
+// --- Internal Routes ---
+router.post('/internal/resync-products', resyncAllProducts);
 
 // Routes for managing relationships
 router.post('/:id/categories', authMiddleware, hasPermission('update:product'), addCategoriesToProduct);

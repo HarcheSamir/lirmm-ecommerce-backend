@@ -1,0 +1,26 @@
+{
+    "name": "review-service",
+    "version": "1.0.0",
+    "main": "src/index.js",
+    "scripts": {
+      "start": "echo 'Pushing schema...' && npx prisma db push --accept-data-loss && echo 'Starting Service...' && node src/index.js",
+      "dev": "echo 'Pushing schema...' && npx prisma db push --accept-data-loss && echo 'Starting Service with nodemon...' && nodemon src/index.js",
+      "test": "jest --detectOpenHandles --forceExit --runInBand"
+    },
+    "dependencies": {
+      "@prisma/client": "^5.12.1",
+      "axios": "^1.6.8",
+      "consul": "^1.2.0",
+      "cors": "^2.8.5",
+      "dotenv": "^16.4.5",
+      "express": "^4.19.2",
+      "kafkajs": "^2.2.4",
+      "morgan": "^1.10.0"
+    },
+    "devDependencies": {
+      "jest": "^29.7.0",
+      "nodemon": "^3.1.0",
+      "prisma": "^5.12.1",
+      "supertest": "^6.3.4"
+    }
+  }
