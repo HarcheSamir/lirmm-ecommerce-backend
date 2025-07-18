@@ -77,7 +77,7 @@ deploy_kubernetes_manifests() {
   envsubst < "${KUBERNETES_MANIFEST_TEMPLATE_FILE}" > "${KUBERNETES_MANIFEST_RENDERED_FILE}"
   
   echo "Rendered manifest to ${KUBERNETES_MANIFEST_RENDERED_FILE}"
-  kubectl apply -f "${KUBERNETES_MANIFEST_RENDERED_FILE}"
+  kubectl apply -f "${KUBERNETES_MANIFEST_RENDERED_FILE}" --validate=false
   
   echo "--- Waiting for all deployments to become available (this may take several minutes)... ---"
   kubectl wait --for=condition=Available --all deployments -n default --timeout=10m
