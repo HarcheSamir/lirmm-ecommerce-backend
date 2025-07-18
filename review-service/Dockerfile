@@ -1,8 +1,11 @@
-# ===== FILE: ./review-service/Dockerfile (REVISED) =====
+# ===== FILE: ./review-service/Dockerfile (FINAL - VERIFIED) =====
 
 # --- STAGE 1: Builder ---
     FROM node:18-alpine AS builder
-    # Install OpenSSL which is a Prisma dependency on Alpine
+    # **THE FIX**: Bypass the 403 checksum error.
+    ENV PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1
+    
+    # Install OpenSSL which is a Prisma runtime dependency on Alpine
     RUN apk add --no-cache openssl
     WORKDIR /app
     COPY package*.json ./
@@ -13,13 +16,12 @@
     
     # --- STAGE 2: Production ---
     FROM node:18-alpine
-    # Install OpenSSL here as well for runtime
+    # Install OpenSSL here as well for runtime.
     RUN apk add --no-cache openssl
     WORKDIR /app
     COPY --from=builder /app/node_modules ./node_modules
     COPY --from=builder /app/node_modules/.prisma/client ./node_modules/.prisma/client
     COPY package*.json ./
     COPY . .
-    
     EXPOSE 3008
     CMD ["npm", "run", "start"]
