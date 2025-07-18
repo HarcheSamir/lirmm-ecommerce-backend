@@ -53,8 +53,6 @@ build_custom_images() {
     local FULL_IMAGE_NAME="${IMAGE_PREFIX}/${SERVICE_DIR}:${IMAGE_TAG}"
     echo "Building ${FULL_IMAGE_NAME} from ./${SERVICE_DIR}"
     
-    # THIS IS THE ONLY CHANGE. It forces Docker to use your host's network for the build,
-    # solving the Prisma download error without touching your Dockerfiles.
     docker build --network=host -t "${FULL_IMAGE_NAME}" "./${SERVICE_DIR}"
   done
 }
