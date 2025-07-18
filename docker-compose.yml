@@ -42,6 +42,27 @@ services:
       timeout: 10s
       retries: 5
 
+  kafka-init:
+    image: confluentinc/cp-kafka:7.3.2
+    container_name: kafka-init-dev
+    networks:
+      - microservices-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for Kafka to be ready...' &&
+        cub kafka-ready -b kafka-dev:9092 1 30 &&
+        echo 'Kafka is ready! Creating topics...' &&
+        kafka-topics --bootstrap-server kafka-dev:9092 --create --if-not-exists --topic auth_events --partitions 1 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka-dev:9092 --create --if-not-exists --topic product_events --partitions 1 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka-dev:9092 --create --if-not-exists --topic review_events --partitions 1 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka-dev:9092 --create --if-not-exists --topic order_events --partitions 1 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka-dev:9092 --create --if-not-exists --topic payment_events --partitions 1 --replication-factor 1 &&
+        echo 'Topics created successfully.'
+      "
+      
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
     container_name: elasticsearch-dev

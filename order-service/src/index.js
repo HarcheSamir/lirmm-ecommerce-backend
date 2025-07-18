@@ -3,6 +3,7 @@ const { app, startApp } = require('./config/app');
 const { registerService } = require('./config/consul');
 const { connectConsumer, disconnectConsumer } = require('./kafka/consumer');
 
+
 const PORT = process.env.PORT || 3007;
 
 const startServer = async () => {
