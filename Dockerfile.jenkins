@@ -1,0 +1,37 @@
+# Use the official Long-Term-Support Jenkins image with Java 17
+FROM jenkins/jenkins:lts-jdk17
+
+# Switch to the root user to install software
+USER root
+
+# Install prerequisite packages for adding new repositories and tools
+RUN apt-get update && apt-get install -y \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    sudo \
+    gettext
+
+# Add Docker's official GPG key and set up the repository
+RUN mkdir -p /etc/apt/keyrings
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+RUN echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+  $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Install the Docker CLI (Client)
+RUN apt-get update && apt-get install -y docker-ce-cli
+
+# Install kubectl (Kubernetes CLI)
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+RUN install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+# Install kind (Kubernetes in Docker)
+RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+RUN chmod +x ./kind
+RUN mv ./kind /usr/local/bin/kind
+
+# Switch back to the standard, non-root jenkins user
+USER jenkins
