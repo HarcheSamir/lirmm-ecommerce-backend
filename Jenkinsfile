@@ -1,124 +1,145 @@
-// The new, modern Jenkinsfile for Kubernetes agents
-
+// Jenkinsfile - Final Version
 pipeline {
-    // This agent block is the core of the new setup.
-    // It tells Jenkins to spin up a Pod in Kubernetes to run the build.
+    // Agent Configuration: The pipeline will run inside our custom agent.
     agent {
-        kubernetes {
-            // This 'cloud' name must match what you configure in the Jenkins UI in the next step
-            cloud 'kubernetes'
-            label "build-pod-${UUID.randomUUID().toString()}"
-            // This YAML defines the agent pod with all the tools we need
-            yaml """
-apiVersion: v1
-kind: Pod
-spec:
-  containers:
-  - name: jnlp # This container is required by Jenkins for communication
-    image: jenkins/inbound-agent:latest
-    args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
-    resources:
-      limits:
-        memory: "1024Mi"
-        cpu: "1000m"
-      requests:
-        memory: "512Mi"
-        cpu: "500m"
-  - name: docker # A separate container with Docker tools
-    image: docker:24-cli
-    command: ['cat']
-    tty: true
-    resources:
-      limits:
-        memory: "1024Mi"
-        cpu: "1000m"
-      requests:
-        memory: "512Mi"
-        cpu: "500m"
-  - name: tools # A container with kubectl, kind, git, envsubst
-    image: cachengo/kubectl-kind:v1.28.2
-    command: ['cat']
-    tty: true
-    resources:
-      limits:
-        memory: "1024Mi"
-        cpu: "1000m"
-      requests:
-        memory: "512Mi"
-        cpu: "500m"
-  # This volume allows all containers in the pod to share the workspace
-  volumes:
-    - name: workspace-volume
-      emptyDir: {}
-"""
+        docker {
+            image 'my-jenkins-agent'
+            // Run as root and mount the Docker socket to control Docker and Kind.
+            args '-u root -v /var/run/docker.sock:/var/run/docker.sock'
         }
     }
 
+    // Environment Variables: Centralized configuration for the entire pipeline.
     environment {
-        // You MUST change this to your GitHub username
-        GHCR_PREFIX = 'ghcr.io/HarcheSamir'
-        // This is the ID of the GitHub PAT you will store in Jenkins
-        GHCR_CREDENTIALS_ID = 'github-pat'
-        IMAGE_TAG = "build-${env.BUILD_NUMBER}"
-        KUBERNETES_MANIFEST_TEMPLATE_FILE = './kind-deployment/kubernetes-manifests.yaml'
-        KUBERNETES_MANIFEST_RENDERED_FILE = "./kind-deployment/kubernetes-manifests-rendered-${env.BUILD_ID}.yaml"
+        CLUSTER_NAME = 'lirmm-k8s-cluster'
+        // Use a dynamic and unique image tag for every build to ensure freshness.
+        IMAGE_TAG = "build-${BUILD_NUMBER}"
+        // A consistent prefix for your application's Docker images.
+        IMAGE_PREFIX = 'lirmm-ecommerce'
+        K8S_MANIFEST_TEMPLATE = 'kind-deployment/kubernetes-manifests.yaml'
+        K8S_MANIFEST_RENDERED = 'kind-deployment/kubernetes-manifests-rendered.yaml'
+        KIND_CONFIG = 'kind-deployment/kind-cluster-config.yaml'
     }
 
+    // Pipeline Stages: The sequence of operations.
     stages {
-        stage('Checkout') {
+
+        stage('Cleanup Environment') {
             steps {
-                // This 'jnlp' container has git installed by default
-                container('jnlp') {
-                    cleanWs()
-                    checkout scm
+                script {
+                    echo "--- Ensuring a clean slate by deleting any old Kind cluster: ${CLUSTER_NAME} ---"
+                    // Use '|| true' to prevent the pipeline from failing if the cluster doesn't exist.
+                    sh "kind delete cluster --name ${CLUSTER_NAME} || true"
                 }
             }
         }
 
-        stage('Build and Push Custom Images') {
+        stage('Build Service Images') {
             steps {
-                // Now we run Docker commands in the 'docker' container
-                container('docker') {
-                    withCredentials([string(credentialsId: GHCR_CREDENTIALS_ID, variable: 'GITHUB_TOKEN')]) {
-                        // Log in to the GitHub Container Registry
-                        sh "echo \$GITHUB_TOKEN | docker login ghcr.io -u HarcheSamir --password-stdin"
+                script {
+                    echo "--- Building all microservice Docker images with tag: ${IMAGE_TAG} ---"
+                    // Find all subdirectories that contain a Dockerfile.
+                    def serviceDirs = findFiles(glob: '**/Dockerfile').collect { it.path.split('/')[0] }.unique()
 
-                        // Loop through your services and build/push them
-                        script {
-                            def services = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service', 'cart-service', 'order-service', 'review-service']
-                            services.each { service ->
-                                def imageName = "${env.GHCR_PREFIX}/${service}:${env.IMAGE_TAG}"
-                                echo "Building and pushing ${imageName}"
-                                sh "docker build -t ${imageName} ./${service}"
-                                sh "docker push ${imageName}"
+                    def builds = [:]
+                    for (dir in serviceDirs) {
+                        // Exclude the root directory itself.
+                        if (dir != '.' && dir != '..') {
+                            def serviceName = dir
+                            def fullImageName = "${IMAGE_PREFIX}/${serviceName}:${IMAGE_TAG}"
+                            def contextPath = "./${serviceName}"
+
+                            builds[serviceName] = {
+                                stage("Build ${serviceName}") {
+                                    echo "Building Docker image: ${fullImageName}"
+                                    try {
+                                        sh "docker build -t ${fullImageName} ${contextPath}"
+                                    } catch (e) {
+                                        error "FATAL: Docker build failed for ${serviceName}. Aborting pipeline."
+                                    }
+                                }
                             }
                         }
+                    }
+                    // Execute all builds in parallel for speed.
+                    parallel builds
+                }
+            }
+        }
+
+        stage('Create Kind Cluster') {
+            steps {
+                script {
+                    echo "--- Provisioning local Kubernetes cluster: ${CLUSTER_NAME} ---"
+                    sh "kind create cluster --name ${CLUSTER_NAME} --config ${KIND_CONFIG}"
+                }
+            }
+        }
+
+        stage('Load Images into Kind') {
+            steps {
+                script {
+                    echo "--- Loading all required Docker images into the Kind cluster ---"
+                    // List of all public images your Kubernetes manifest depends on.
+                    def publicImages = [
+                        "confluentinc/cp-zookeeper:7.3.2", "confluentinc/cp-kafka:7.3.2",
+                        "docker.elastic.co/elasticsearch/elasticsearch:8.11.1",
+                        "hashicorp/consul:1.18", "redis:7.2-alpine", "postgres:15-alpine"
+                    ]
+
+                    // First, load the custom images we just built.
+                    def serviceDirs = findFiles(glob: '**/Dockerfile').collect { it.path.split('/')[0] }.unique()
+                    for (dir in serviceDirs) {
+                         if (dir != '.' && dir != '..') {
+                            def serviceName = dir
+                            def fullImageName = "${IMAGE_PREFIX}/${serviceName}:${IMAGE_TAG}"
+                            echo "Loading custom image into kind: ${fullImageName}"
+                            sh "kind load docker-image ${fullImageName} --name ${CLUSTER_NAME}"
+                        }
+                    }
+
+                    // Second, pull and load the public images.
+                    for (image in publicImages) {
+                        echo "Loading public image into kind: ${image}"
+                        sh "docker pull ${image}"
+                        sh "kind load docker-image ${image} --name ${CLUSTER_NAME}"
                     }
                 }
             }
         }
 
-        stage('Deploy Application to Cluster') {
+        stage('Deploy Application') {
             steps {
-                // Now we run kubectl commands in the 'tools' container
-                container('tools') {
-                    echo "Rendering and applying Kubernetes manifests..."
-                    // We need to set the IMAGE_TAG for envsubst to use
-                    sh "export IMAGE_TAG='${env.IMAGE_TAG}' && envsubst < ${KUBERNETES_MANIFEST_TEMPLATE_FILE} > ${KUBERNETES_MANIFEST_RENDERED_FILE}"
-                    sh "kubectl apply -f ${KUBERNETES_MANIFEST_RENDERED_FILE}"
+                script {
+                    echo "--- Deploying application stack to Kubernetes ---"
+                    // Correctly export variables so 'envsubst' can replace them in the manifest.
+                    // This is the most reliable way to handle the variable substitution.
+                    sh "export IMAGE_PREFIX=${IMAGE_PREFIX} IMAGE_TAG=${IMAGE_TAG} && envsubst < ${K8S_MANIFEST_TEMPLATE} > ${K8S_MANIFEST_RENDERED}"
+                    
+                    echo "Applying rendered manifest: ${K8S_MANIFEST_RENDERED}"
+                    sh "kubectl apply -f ${K8S_MANIFEST_RENDERED}"
 
-                    echo "Waiting for deployments to rollout..."
-                    // This is a simplified wait, your original looping method is more robust
-                    sh "kubectl rollout status deployment/api-gateway-deployment --timeout=5m"
-                    // ... you would add waits for your other deployments here ...
+                    echo "--- Deployment initiated. Allowing time for pods to stabilize... ---"
+                    sh "sleep 60" // Wait for deployments to roll out before checking status.
                 }
             }
         }
     }
-
+    // Post-build Actions: These actions run after all stages, regardless of outcome.
     post {
         always {
-            cleanWs()
+            script {
+                echo "--- PIPELINE FINISHED ---"
+                echo "Final Pod Status:"
+                sh "kubectl get pods -A"
+                echo "-------------------------"
+                echo "Application Access Points:"
+                echo "- API Gateway:   http://localhost:13000"
+                echo "- Consul UI:     http://localhost:18500"
+                echo "- Elasticsearch: http://localhost:19200"
+                echo "-------------------------"
+                echo "To delete the cluster, run: kind delete cluster --name ${CLUSTER_NAME}"
+            }
         }
     }
 }
