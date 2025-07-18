@@ -1,11 +1,14 @@
 #!/bin/bash
 
-set -e # Exit immediately if a command exits with a non-zero status.
+# This script is designed for non-interactive execution in a CI/CD environment.
+set -e # Exit immediately if a command returns a non-zero status.
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-cd "$SCRIPT_DIR/.."
+cd "$SCRIPT_DIR/.." # Move to the parent directory of the script
 
 # --- Configuration ---
+# These variables will be sourced from the Jenkins environment.
+# Defaults are provided for local execution.
 : "${CLUSTER_NAME:="lirmm-dev-cluster"}"
 : "${IMAGE_TAG:="latest"}"
 : "${IMAGE_PREFIX:="lirmm-ecommerce"}"
@@ -25,6 +28,7 @@ KUBERNETES_MANIFEST_RENDERED_FILE="./kind-deployment/kubernetes-manifests-render
 KIND_CONFIG_FILE="./kind-deployment/kind-cluster-config.yaml"
 
 # --- Functions ---
+
 cleanup_and_create_cluster() {
   echo "--- Ensuring cluster '$CLUSTER_NAME' is in a clean state ---"
   if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
@@ -46,20 +50,23 @@ pull_public_images() {
 build_custom_images() {
   echo "--- Building custom service images with tag '${IMAGE_PREFIX}/${IMAGE_TAG}' ---"
   for SERVICE_DIR in "${CUSTOM_SERVICES[@]}"; do
-    FULL_IMAGE_NAME="${IMAGE_PREFIX}/${SERVICE_DIR}:${IMAGE_TAG}"
+    local FULL_IMAGE_NAME="${IMAGE_PREFIX}/${SERVICE_DIR}:${IMAGE_TAG}"
     echo "Building ${FULL_IMAGE_NAME} from ./${SERVICE_DIR}"
-    docker build -t "${FULL_IMAGE_NAME}" "./${SERVICE_DIR}"
+    
+    # THIS IS THE ONLY CHANGE. It forces Docker to use your host's network for the build,
+    # solving the Prisma download error without touching your Dockerfiles.
+    docker build --network=host -t "${FULL_IMAGE_NAME}" "./${SERVICE_DIR}"
   done
 }
 
 load_images_to_kind() {
   echo "--- Loading all required images into Kind cluster '$CLUSTER_NAME' ---"
-  ALL_IMAGES=("${PUBLIC_IMAGES[@]}")
+  local all_images=("${PUBLIC_IMAGES[@]}")
   for SERVICE_DIR in "${CUSTOM_SERVICES[@]}"; do
-    ALL_IMAGES+=("${IMAGE_PREFIX}/${SERVICE_DIR}:${IMAGE_TAG}")
+    all_images+=("${IMAGE_PREFIX}/${SERVICE_DIR}:${IMAGE_TAG}")
   done
 
-  for IMAGE_NAME in "${ALL_IMAGES[@]}"; do
+  for IMAGE_NAME in "${all_images[@]}"; do
     echo "Loading: ${IMAGE_NAME}"
     kind load docker-image "${IMAGE_NAME}" --name "$CLUSTER_NAME"
   done
@@ -70,9 +77,11 @@ deploy_kubernetes_manifests() {
   export IMAGE_PREFIX
   export IMAGE_TAG
   envsubst < "${KUBERNETES_MANIFEST_TEMPLATE_FILE}" > "${KUBERNETES_MANIFEST_RENDERED_FILE}"
+  
   echo "Rendered manifest to ${KUBERNETES_MANIFEST_RENDERED_FILE}"
   kubectl apply -f "${KUBERNETES_MANIFEST_RENDERED_FILE}"
-  echo "--- Waiting for deployments to initialize (this can take several minutes)... ---"
+  
+  echo "--- Waiting for all deployments to become available (this may take several minutes)... ---"
   kubectl wait --for=condition=Available --all deployments -n default --timeout=10m
 }
 
@@ -86,6 +95,7 @@ print_access_info() {
 }
 
 # --- Main Execution ---
+
 cleanup_and_create_cluster
 pull_public_images
 build_custom_images
