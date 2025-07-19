@@ -1,24 +1,34 @@
 pipeline {
-    agent any
+    // THIS IS THE FIX: All commands will execute directly on your WSL host.
+    agent { label 'wsl' }
 
     environment {
         IMAGE_PREFIX                = 'lirmm-ecommerce'
         IMAGE_TAG                   = "build-${env.BUILD_NUMBER}"
         KIND_CLUSTER_NAME           = "lirmm-dev-cluster"
-        KUBECONFIG_PATH             = "${pwd()}/kubeconfig.internal"
-        KUBERNETES_RENDERED_FILE    = "${pwd()}/kind-deployment/kubernetes-manifests-rendered.yaml"
+        KIND_CONFIG_FILE            = './kind-deployment/kind-cluster-config.yaml'
+        KUBERNETES_MANIFEST_FILE    = './kind-deployment/kubernetes-manifests.yaml'
+        KUBERNETES_RENDERED_FILE    = "./kind-deployment/kubernetes-manifests-rendered.yaml"
     }
 
     stages {
-        // === NEW, SEPARATE STAGE FOR ALL ONLINE ACTIVITY ===
         stage('Pull Base Images & Build Custom Images') {
             steps {
                 script {
-                    sh 'chmod +x ./kind-deployment/setup-kind.sh'
-                    // Step 1: Pull all public images first, while network is stable.
-                    sh './kind-deployment/setup-kind.sh pull_public_images'
-                    // Step 2: Build all custom images (which also pulls base images).
-                    sh './kind-deployment/setup-kind.sh build_images'
+                    def publicImages = ['postgres:15-alpine', 'confluentinc/cp-zookeeper:7.3.2', 'confluentinc/cp-kafka:7.3.2', 'docker.elastic.co/elasticsearch/elasticsearch:8.11.1', 'hashicorp/consul:1.18', 'redis:7.2-alpine']
+                    
+                    echo "--- Pulling public images ---"
+                    publicImages.each { image ->
+                        sh "docker pull ${image}"
+                    }
+
+                    echo "--- Building custom service images ---"
+                    def services = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service', 'cart-service', 'order-service', 'review-service']
+                    services.each { service ->
+                        def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
+                        echo "Building ${imageName}"
+                        sh "docker build -t ${imageName} ./${service}"
+                    }
                 }
             }
         }
@@ -26,30 +36,29 @@ pipeline {
         stage('Create Cluster, Load Images & Deploy') {
             steps {
                 script {
-                    // Step 3: Now we create the cluster.
-                    sh './kind-deployment/setup-kind.sh create_cluster'
-                    // Step 4: Load everything from local cache (long-running but offline).
-                    sh './kind-deployment/setup-kind.sh load_images'
+                    echo "--- Creating Kind cluster (ports will now be mapped) ---"
+                    sh "kind delete cluster --name ${env.KIND_CLUSTER_NAME} || true"
+                    sh "kind create cluster --name ${env.KIND_CLUSTER_NAME} --config ${env.KIND_CONFIG_FILE}"
 
-                    // Step 5: The deployment logic, which is now guaranteed to work.
-                    echo "--- Generating and correcting the internal kubeconfig ---"
-                    sh """
-                        kind get kubeconfig --name ${KIND_CLUSTER_NAME} --internal > ${KUBECONFIG_PATH}
-                        KIND_IP=\$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${KIND_CLUSTER_NAME}-control-plane")
-                        sed -i "s|server: https://.*:6443|server: https://\${KIND_IP}:6443|g" ${KUBECONFIG_PATH}
-                    """
-                    echo "--- Rendering Kubernetes Manifest ---"
-                    sh """
-                        export IMAGE_PREFIX='${env.IMAGE_PREFIX}'
-                        export IMAGE_TAG='${env.IMAGE_TAG}'
-                        envsubst < ./kind-deployment/kubernetes-manifests.yaml > ${KUBERNETES_RENDERED_FILE}
-                    """
-                    echo "--- Deploying to Kubernetes ---"
-                    docker.image('alpine/k8s:1.27.3').inside("--network kind") {
-                        sh "kubectl --kubeconfig=${KUBECONFIG_PATH} apply -f ${KUBERNETES_RENDERED_FILE}"
-                        echo "--- Waiting for deployments to become available ---"
-                        sh "kubectl --kubeconfig=${KUBECONFIG_PATH} wait --for=condition=Available --all deployments -n default --timeout=15m"
+                    echo "--- Loading images into Kind (this will take a while) ---"
+                    def allImages = []
+                    def services = ['api-gateway', 'auth-service', 'product-service', 'image-service', 'search-service', 'cart-service', 'order-service', 'review-service']
+                    services.each { service -> allImages.add("${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}") }
+                    allImages.addAll(['postgres:15-alpine', 'confluentinc/cp-zookeeper:7.3.2', 'confluentinc/cp-kafka:7.3.2', 'docker.elastic.co/elasticsearch/elasticsearch:8.11.1', 'hashicorp/consul:1.18', 'redis:7.2-alpine'])
+                    
+                    // Loading one by one for stability
+                    allImages.each { image ->
+                        echo "Loading: ${image}"
+                        sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME}"
                     }
+
+                    echo "--- Deploying application to Kind cluster ---"
+                    sh "kubectl cluster-info"
+                    sh "export IMAGE_PREFIX='${env.IMAGE_PREFIX}' && export IMAGE_TAG='${env.IMAGE_TAG}' && envsubst < ${env.KUBERNETES_MANIFEST_FILE} > ${env.KUBERNETES_RENDERED_FILE}"
+                    sh "kubectl apply -f ${env.KUBERNETES_RENDERED_FILE}"
+
+                    echo "--- Waiting for deployments to become available ---"
+                    sh "kubectl wait --for=condition=Available --all deployments -n default --timeout=15m"
                 }
             }
         }
@@ -57,12 +66,14 @@ pipeline {
 
     post {
         always {
-            sh "rm -f ${KUBECONFIG_PATH} || true"
-            sh "rm -f ${KUBERNETES_RENDERED_FILE} || true"
-            sh "kind delete cluster --name ${KIND_CLUSTER_NAME} || true"
+            sh "rm -f ${env.KUBERNETES_RENDERED_FILE} || true"
+            // We leave the cluster running so you can access it.
+            echo "Kind cluster '${env.KIND_CLUSTER_NAME}' is running."
         }
         success {
-            echo "PIPELINE SUCCEEDED"
+            echo "--- PIPELINE SUCCEEDED ---"
+            echo "Access API Gateway at: http://localhost:13000"
+            echo "Access Consul UI at: http://localhost:18500"
         }
     }
 }
