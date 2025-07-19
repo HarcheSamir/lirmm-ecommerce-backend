@@ -8,6 +8,10 @@ nodes:
     nodeRegistration:
       kubeletExtraArgs:
         node-labels: "ingress-ready=true"
+    # This block increases the timeout for the cluster's internal database (etcd),
+    # preventing the 'request timed out' error during cluster creation.
+    apiServer:
+      timeoutForControlPlane: 5m
   extraPortMappings:
   - containerPort: 30902
     hostPort: 39092
