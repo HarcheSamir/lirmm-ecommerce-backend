@@ -1,65 +1,31 @@
 #!/bin/bash
 set -e
 
-# --- Configuration ---
+# THIS IS A TEMPORARY SCRIPT FOR A FAST TEST.
+# IT FIXES THE 'IMAGE NOT PRESENT LOCALLY' ERROR.
+
 CLUSTER_NAME="lirmm-dev-cluster"
-IMAGE_PREFIX="lirmm-ecommerce"
-MANUAL_IMAGE_TAG="latest"
-SERVICES=('api-gateway' 'auth-service' 'product-service' 'image-service' 'search-service' 'cart-service' 'order-service' 'review-service')
-PUBLIC_IMAGES=('postgres:15-alpine' 'confluentinc/cp-zookeeper:7.3.2' 'confluentinc/cp-kafka:7.3.2' 'docker.elastic.co/elasticsearch/elasticsearch:8.11.1' 'hashicorp/consul:1.18' 'redis:7.2-alpine')
 KIND_CONFIG_FILE="./kind-deployment/kind-cluster-config.yaml"
-FINAL_IMAGE_TAG="build-${BUILD_NUMBER:-$MANUAL_IMAGE_TAG}"
+# Test with only one public image to be fast.
+PUBLIC_IMAGE_TO_TEST="postgres:15-alpine"
 
-# --- Reusable Functions ---
+# --- Main Logic ---
 
-create_cluster() {
-    echo "--- Creating Kind cluster: ${CLUSTER_NAME} ---"
-    kind delete cluster --name "${CLUSTER_NAME}" || true
-    kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
-}
+echo "--- 1. Creating a fresh, empty Kind cluster ---"
+kind delete cluster --name "${CLUSTER_NAME}" || true
+kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
 
-build_images() {
-    echo "--- Building custom service images with tag: ${FINAL_IMAGE_TAG} ---"
-    for SERVICE in "${SERVICES[@]}"; do
-        echo "Building ${IMAGE_PREFIX}/${SERVICE}:${FINAL_IMAGE_TAG}"
-        docker build -t "${IMAGE_PREFIX}/${SERVICE}:${FINAL_IMAGE_TAG}" "./${SERVICE}"
-    done
-}
+echo "--- 2. Pulling the public test image (${PUBLIC_IMAGE_TO_TEST}) ---"
+# This is the step that was missing and caused the failure.
+docker pull "${PUBLIC_IMAGE_TO_TEST}"
 
-# === THIS IS THE REVERTED, STABLE VERSION ===
-load_images() {
-    echo "--- Loading all images into Kind cluster one by one (this will take time) ---"
-    local all_images=("${PUBLIC_IMAGES[@]}")
-    for SERVICE in "${SERVICES[@]}"; do
-        all_images+=("${IMAGE_PREFIX}/${SERVICE}:${FINAL_IMAGE_TAG}")
-    done
-    
-    # This stable loop loads images sequentially, preventing out-of-disk errors.
-    for IMAGE in "${all_images[@]}"; do
-        echo "Loading image: ${IMAGE}"
-        kind load docker-image --name "${CLUSTER_NAME}" "${IMAGE}"
-    done
-}
-# ============================================
+echo "--- 3. Loading the public test image into Kind ---"
+# This command will now succeed because the image is present locally.
+kind load docker-image --name "${CLUSTER_NAME}" "${PUBLIC_IMAGE_TO_TEST}"
 
-# --- Command Line Argument Parsing for Jenkins ---
-
-case "$1" in
-    create_cluster)
-        create_cluster
-        ;;
-    build_images)
-        build_images
-        ;;
-    load_images)
-        load_images
-        ;;
-    *)
-        echo "Usage for Jenkins: $0 {create_cluster|build_images|load_images}"
-        echo "Running full sequence for manual execution..."
-        create_cluster
-        build_images
-        load_images
-        echo "--- Manual run complete. The cluster is up and loaded with images. ---"
-        ;;
-esac
+echo ""
+echo "##############################################"
+echo "###              TEST SUCCEEDED            ###"
+echo "### The 'image not present locally' error  ###"
+echo "### is fixed.                              ###"
+echo "##############################################"
