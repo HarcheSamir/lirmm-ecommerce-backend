@@ -13,17 +13,15 @@ pipeline {
             }
         }
 
-        stage('Verify Connection with Correct Docker Image (The Real Test)') {
+        stage('Verify Connection with Correct Image (This is it)') {
             steps {
                 script {
-                    echo "--- Attempting to connect using the CORRECT container image ---"
+                    echo "--- Attempting connection using the correct, kubectl-enabled image ---"
                     
-                    // THE ONLY CHANGE IS THIS LINE:
-                    // We use an image designed to work with this Jenkins plugin.
-                    docker.image('jenkins/inbound-agent:latest-jdk17').inside("--network kind") {
-                        // The kubectl command works here because all the tools from the
-                        // host Jenkins environment become available inside.
-                        sh "/usr/local/bin/kubectl cluster-info"
+                    // THIS IS THE FINAL, CORRECTED LINE:
+                    // Using an image that is guaranteed to contain kubectl and stay running.
+                    docker.image('alpine/k8s:1.27.3').inside("--network kind") {
+                        sh "kubectl cluster-info"
                     }
 
                     echo "--- TEST SUCCEEDED. The connection is working. ---"
