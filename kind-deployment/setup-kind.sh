@@ -12,10 +12,12 @@ FINAL_IMAGE_TAG="build-${BUILD_NUMBER:-$MANUAL_IMAGE_TAG}"
 
 # --- Reusable Functions ---
 
-create_cluster() {
-    echo "--- Creating Kind cluster: ${CLUSTER_NAME} ---"
-    kind delete cluster --name "${CLUSTER_NAME}" || true
-    kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
+pull_public_images() {
+    echo "--- Pulling all public images to the host daemon ---"
+    for IMAGE in "${PUBLIC_IMAGES[@]}"; do
+        echo "Pulling ${IMAGE}"
+        docker pull "${IMAGE}"
+    done
 }
 
 build_images() {
@@ -26,13 +28,13 @@ build_images() {
     done
 }
 
-load_images() {
-    echo "--- Pulling all public images to the host daemon ---"
-    for IMAGE in "${PUBLIC_IMAGES[@]}"; do
-        echo "Pulling ${IMAGE}"
-        docker pull "${IMAGE}"
-    done
+create_cluster() {
+    echo "--- Creating Kind cluster: ${CLUSTER_NAME} ---"
+    kind delete cluster --name "${CLUSTER_NAME}" || true
+    kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
+}
 
+load_images() {
     echo "--- Loading all images into Kind cluster one by one (this will take time) ---"
     local all_images_to_load=("${PUBLIC_IMAGES[@]}")
     for SERVICE in "${SERVICES[@]}"; do
@@ -48,20 +50,24 @@ load_images() {
 # --- Command Line Argument Parsing for Jenkins ---
 
 case "$1" in
-    create_cluster)
-        create_cluster
+    pull_public_images)
+        pull_public_images
         ;;
     build_images)
         build_images
+        ;;
+    create_cluster)
+        create_cluster
         ;;
     load_images)
         load_images
         ;;
     *)
-        echo "Usage for Jenkins: $0 {create_cluster|build_images|load_images}"
+        echo "Usage for Jenkins: $0 {pull_public_images|build_images|create_cluster|load_images}"
         echo "Running full sequence for manual execution..."
-        create_cluster
+        pull_public_images
         build_images
+        create_cluster
         load_images
         echo "--- Manual run complete. The cluster is up and loaded with images. ---"
         ;;
