@@ -13,17 +13,20 @@ pipeline {
             }
         }
 
-        stage('Verify Connection with Docker Plugin (The Real Test)') {
+        stage('Verify Connection with Correct Docker Image (The Real Test)') {
             steps {
                 script {
-                    echo "--- Attempting to connect to cluster from a container on the 'kind' network ---"
+                    echo "--- Attempting to connect using the CORRECT container image ---"
                     
-                    // This is the only test that matters. If this block succeeds, the plugin is working correctly.
-                    docker.image('bitnami/kubectl:latest').inside("--network kind") {
-                        sh "kubectl cluster-info"
+                    // THE ONLY CHANGE IS THIS LINE:
+                    // We use an image designed to work with this Jenkins plugin.
+                    docker.image('jenkins/inbound-agent:latest-jdk17').inside("--network kind") {
+                        // The kubectl command works here because all the tools from the
+                        // host Jenkins environment become available inside.
+                        sh "/usr/local/bin/kubectl cluster-info"
                     }
 
-                    echo "--- TEST SUCCEEDED. The connection is working with the plugin. ---"
+                    echo "--- TEST SUCCEEDED. The connection is working. ---"
                 }
             }
         }
@@ -31,7 +34,6 @@ pipeline {
     
     post {
         always {
-            // Always clean up the test cluster.
             echo "--- Cleaning up test cluster ---"
             sh 'kind delete cluster --name ${KIND_CLUSTER_NAME} || true'
         }
