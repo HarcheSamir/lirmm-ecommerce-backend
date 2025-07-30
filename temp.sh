@@ -1,8 +1,16 @@
 tree -I "node_modules"
 
-find ./kind-deployment -type f \
+find . -type f \
+  \( \
+    -name "docker-compose.yml" -o \
+    -path "*/api-gateway/*" -o \
+    -path "*/kind-deployment/*" \
+  \) \
+  ! -path "*/node_modules/*" \
+  ! -path "*/__tests__/*" \
+  ! -path "*/.git/*" \
+  ! -path "*/migrations/*" \
   ! -name "package-lock.json" \
-  ! -name "docker-compose.dev" \
   ! -name "all.sh" \
   -exec sh -c '
     for f; do
