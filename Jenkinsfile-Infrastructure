@@ -27,7 +27,8 @@ pipeline {
                     }
 
                     echo "--- Creating Kind cluster (if it does not exist) ---"
-                    if (sh(script: "kind get clusters | grep -q '^${env.KIND_CLUSTER_NAME}$'", returnStatus: true) != 0) {
+                    // THIS IS THE CORRECTED LINE: The final '$' is escaped as '\$'
+                    if (sh(script: "kind get clusters | grep -q '^${env.KIND_CLUSTER_NAME}\$'", returnStatus: true) != 0) {
                         echo "Cluster '${env.KIND_CLUSTER_NAME}' not found. Creating..."
                         sh "kind create cluster --name ${env.KIND_CLUSTER_NAME} --config ${env.KIND_CONFIG_FILE}"
                     } else {
