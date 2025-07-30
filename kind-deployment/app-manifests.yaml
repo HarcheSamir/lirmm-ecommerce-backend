@@ -36,6 +36,14 @@ spec:
           value: "api-gateway"
         - name: NODE_ENV
           value: "development"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -99,6 +107,14 @@ spec:
           value: "kafka-svc:9092"
         - name: NODE_ENV
           value: "development"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -160,6 +176,14 @@ spec:
           value: "development"
         - name: IMAGE_SERVICE_BASE_URL
           value: "http://image-service-svc:3004"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -213,6 +237,14 @@ spec:
           value: "/app/uploads"
         - name: IMAGE_BASE_URL
           value: "http://localhost:13004"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
       volumes:
       - name: image-uploads
         emptyDir: {}
@@ -268,6 +300,14 @@ spec:
           value: "http://elasticsearch-svc:9200"
         - name: NODE_ENV
           value: "development"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -318,6 +358,14 @@ spec:
           value: "redis-svc"
         - name: REDIS_PORT
           value: "6379"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -376,6 +424,14 @@ spec:
           value: "kafka-svc:9092"
         - name: NODE_ENV
           value: "development"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
@@ -434,6 +490,14 @@ spec:
           value: "kafka-svc:9092"
         - name: NODE_ENV
           value: "development"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
