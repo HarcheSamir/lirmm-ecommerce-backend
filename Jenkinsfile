@@ -1,10 +1,12 @@
 // THIS IS THE FAST, FREQUENTLY RUN PIPELINE FOR APPLICATION DEPLOYMENT
+// It now uses a static ':latest' tag to ensure caching and prunes old images on success.
 pipeline {
     agent { label 'wsl' }
 
     environment {
         IMAGE_PREFIX                = 'lirmm-ecommerce'
-        IMAGE_TAG                   = "build-${env.BUILD_NUMBER}"
+        // THIS IS THE CHANGE: Use a static tag to enable Docker layer caching across runs.
+        IMAGE_TAG                   = 'latest'
         KIND_CLUSTER_NAME           = "lirmm-dev-cluster"
         APP_MANIFEST_FILE           = './kind-deployment/app-manifests.yaml'
         APP_RENDERED_FILE           = "./kind-deployment/app-manifests-rendered.yaml"
@@ -14,7 +16,7 @@ pipeline {
         stage('Build & Load Application Images') {
             steps {
                 script {
-                    echo "--- Building and loading application service images ---"
+                    echo "--- Building and loading application service images with tag: ${env.IMAGE_TAG} ---"
                     def services = [
                         'api-gateway', 'auth-service', 'product-service', 'image-service', 
                         'search-service', 'cart-service', 'order-service', 'review-service'
@@ -36,9 +38,6 @@ pipeline {
             steps {
                 script {
                     echo "--- Deploying application to Kind cluster ---"
-                    // THIS IS THE CORRECTED LINE:
-                    // It now explicitly tells envsubst which variables to replace,
-                    // preventing it from deleting the other environment variables.
                     sh "envsubst '\\\$IMAGE_PREFIX,\\\$IMAGE_TAG' < ${env.APP_MANIFEST_FILE} > ${env.APP_RENDERED_FILE}"
                     
                     sh "kubectl apply -f ${env.APP_RENDERED_FILE}"
@@ -53,9 +52,13 @@ pipeline {
     post {
         always {
             sh "rm -f ${env.APP_RENDERED_FILE} || true"
-            echo "Kind cluster '${env.KIND_CLUSTER_NAME}' is running with the updated application."
         }
         success {
+            // THIS IS THE CHANGE: Prune dangling (untagged) images after a successful build.
+            // This cleans up the old images that the ':latest' tag moved away from.
+            echo "--- Cleaning up old, untagged Docker images ---"
+            sh "docker image prune -f"
+            
             echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
             echo "Access API Gateway at: http://localhost:13000"
             echo "Access Consul UI at: http://localhost:18500"
