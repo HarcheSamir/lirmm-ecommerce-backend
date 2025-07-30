@@ -36,7 +36,10 @@ pipeline {
             steps {
                 script {
                     echo "--- Deploying application to Kind cluster ---"
-                    sh "export IMAGE_PREFIX='${env.IMAGE_PREFIX}' && export IMAGE_TAG='${env.IMAGE_TAG}' && envsubst < ${env.APP_MANIFEST_FILE} > ${env.APP_RENDERED_FILE}"
+                    // THIS IS THE CORRECTED LINE:
+                    // It now explicitly tells envsubst which variables to replace,
+                    // preventing it from deleting the other environment variables.
+                    sh "envsubst '\\\$IMAGE_PREFIX,\\\$IMAGE_TAG' < ${env.APP_MANIFEST_FILE} > ${env.APP_RENDERED_FILE}"
                     
                     sh "kubectl apply -f ${env.APP_RENDERED_FILE}"
 
