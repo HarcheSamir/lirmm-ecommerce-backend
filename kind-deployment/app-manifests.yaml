@@ -32,6 +32,10 @@ spec:
           value: "3000"
         - name: CONSUL_AGENT_HOST
           value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "api-gateway"
+        - name: NODE_ENV
+          value: "development"
 ---
 apiVersion: v1
 kind: Service
@@ -89,8 +93,12 @@ spec:
           value: "your-secret-key-for-docker-dev"
         - name: CONSUL_AGENT_HOST
           value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "auth-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
+        - name: NODE_ENV
+          value: "development"
 ---
 apiVersion: v1
 kind: Service
@@ -144,8 +152,12 @@ spec:
           value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
         - name: CONSUL_AGENT_HOST
           value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "product-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
+        - name: NODE_ENV
+          value: "development"
         - name: IMAGE_SERVICE_BASE_URL
           value: "http://image-service-svc:3004"
 ---
@@ -193,6 +205,10 @@ spec:
           value: "3004"
         - name: CONSUL_AGENT_HOST
           value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "image-service"
+        - name: NODE_ENV
+          value: "development"
         - name: UPLOAD_DIR
           value: "/app/uploads"
         - name: IMAGE_BASE_URL
@@ -244,10 +260,14 @@ spec:
           value: "3005"
         - name: CONSUL_AGENT_HOST
           value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "search-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
         - name: ELASTICSEARCH_NODE
           value: "http://elasticsearch-svc:9200"
+        - name: NODE_ENV
+          value: "development"
 ---
 apiVersion: v1
 kind: Service
@@ -290,6 +310,10 @@ spec:
           value: "3006"
         - name: CONSUL_AGENT_HOST
           value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "cart-service"
+        - name: NODE_ENV
+          value: "development"
         - name: REDIS_HOST
           value: "redis-svc"
         - name: REDIS_PORT
@@ -346,8 +370,12 @@ spec:
           value: "postgresql://postgres:postgres@order-db-svc:5432/order_db?schema=public"
         - name: CONSUL_AGENT_HOST
           value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "order-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
+        - name: NODE_ENV
+          value: "development"
 ---
 apiVersion: v1
 kind: Service
@@ -400,8 +428,12 @@ spec:
           value: "postgresql://postgres:postgres@review-db-svc:5432/review_db?schema=public"
         - name: CONSUL_AGENT_HOST
           value: "consul-svc"
+        - name: SERVICE_NAME
+          value: "review-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
+        - name: NODE_ENV
+          value: "development"
 ---
 apiVersion: v1
 kind: Service
