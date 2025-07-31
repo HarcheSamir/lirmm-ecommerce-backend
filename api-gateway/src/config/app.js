@@ -11,7 +11,7 @@ app.use(cors());
 app.use(morgan('dev'));
 
 app.get('/', (req, res) => {
-    res.json({ message: `${process.env.SERVICE_NAME || 'API Gateway'} online` });
+    res.json({ message: `${process.env.SERVICE_NAME || 'API Gateway'} onlinee` });
 });
 
 app.get('/health', (req, res) => {
