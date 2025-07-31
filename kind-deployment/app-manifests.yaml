@@ -24,7 +24,7 @@ spec:
       containers:
       - name: api-gateway
         image: ${IMAGE_PREFIX}/api-gateway:${IMAGE_TAG}
-        imagePullPolicy: Always # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent # THIS IS THE FIX
         ports:
         - containerPort: 3000
         env:
@@ -80,7 +80,7 @@ spec:
       initContainers:
       - name: auth-db-migrate
         image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
-        imagePullPolicy: Always # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent # THIS IS THE FIX
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma"]
         env:
         - name: DATABASE_URL
@@ -88,7 +88,7 @@ spec:
       containers:
       - name: auth-service
         image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
-        imagePullPolicy: Always # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent # THIS IS THE FIX
         ports:
         - containerPort: 3001
         command: ["node", "src/index.js"]
@@ -149,7 +149,7 @@ spec:
       initContainers:
       - name: product-db-migrate
         image: ${IMAGE_PREFIX}/product-service:${IMAGE_TAG}
-        imagePullPolicy: Always # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent # THIS IS THE FIX
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma || echo 'Seed failed, continuing...'"]
         env:
         - name: DATABASE_URL
@@ -157,7 +157,7 @@ spec:
       containers:
       - name: product-service
         image: ${IMAGE_PREFIX}/product-service:${IMAGE_TAG}
-        imagePullPolicy: Always # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent # THIS IS THE FIX
         ports:
         - containerPort: 3003
         command: ["node", "src/index.js"]
@@ -218,7 +218,7 @@ spec:
       containers:
       - name: image-service
         image: ${IMAGE_PREFIX}/image-service:${IMAGE_TAG}
-        imagePullPolicy: Always # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent # THIS IS THE FIX
         ports:
         - containerPort: 3004
         volumeMounts:
@@ -284,7 +284,7 @@ spec:
       containers:
       - name: search-service
         image: ${IMAGE_PREFIX}/search-service:${IMAGE_TAG}
-        imagePullPolicy: Always # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent # THIS IS THE FIX
         ports:
         - containerPort: 3005
         env:
@@ -342,7 +342,7 @@ spec:
       containers:
       - name: cart-service
         image: ${IMAGE_PREFIX}/cart-service:${IMAGE_TAG}
-        imagePullPolicy: Always # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent # THIS IS THE FIX
         ports:
         - containerPort: 3006
         env:
@@ -400,7 +400,7 @@ spec:
       initContainers:
       - name: order-db-migrate
         image: ${IMAGE_PREFIX}/order-service:${IMAGE_TAG}
-        imagePullPolicy: Always # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent # THIS IS THE FIX
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
         - name: DATABASE_URL
@@ -408,7 +408,7 @@ spec:
       containers:
       - name: order-service
         image: ${IMAGE_PREFIX}/order-service:${IMAGE_TAG}
-        imagePullPolicy: Always # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent # THIS IS THE FIX
         ports:
         - containerPort: 3007
         env:
@@ -466,7 +466,7 @@ spec:
       initContainers:
       - name: review-db-migrate
         image: ${IMAGE_PREFIX}/review-service:${IMAGE_TAG}
-        imagePullPolicy: Always # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent # THIS IS THE FIX
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
         - name: DATABASE_URL
@@ -474,7 +474,7 @@ spec:
       containers:
       - name: review-service
         image: ${IMAGE_PREFIX}/review-service:${IMAGE_TAG}
-        imagePullPolicy: Always # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent # THIS IS THE FIX
         ports:
         - containerPort: 3008
         env:
