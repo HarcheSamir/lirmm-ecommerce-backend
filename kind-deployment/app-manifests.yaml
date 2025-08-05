@@ -1,6 +1,5 @@
 # =================================================================
 # ISTIO GATEWAY & VIRTUAL SERVICE
-# Defines the entry point and DIRECT routing for the mesh.
 # =================================================================
 apiVersion: networking.istio.io/v1alpha3
 kind: Gateway
@@ -31,18 +30,18 @@ spec:
   http:
   - match:
     - uri:
-        prefix: /auth # Route /auth traffic...
+        prefix: /auth
     route:
     - destination:
-        host: auth-service-svc # ...DIRECTLY to auth-service
+        host: auth-service-svc
         port:
           number: 3001
   - match:
     - uri:
-        prefix: / # Route all other traffic...
+        prefix: /
     route:
     - destination:
-        host: api-gateway-svc # ...to the api-gateway
+        host: api-gateway-svc
         port:
           number: 3000
 # =================================================================
@@ -79,7 +78,7 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        image: ${IMAGE_PREFIX}/api-gateway:${IMAGE_TAG}
+        image: lirmm-ecommerce/api-gateway:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
@@ -119,7 +118,7 @@ spec:
     spec:
       initContainers:
       - name: auth-db-migrate
-        image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
+        image: lirmm-ecommerce/auth-service:latest
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
@@ -127,7 +126,7 @@ spec:
           value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
       containers:
       - name: auth-service
-        image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
+        image: lirmm-ecommerce/auth-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3001
@@ -140,5 +139,4 @@ spec:
         - name: JWT_SECRET
           value: "your-secret-key-for-docker-dev"
         - name: SERVICE_NAME
-          value: "auth-service"```
-
+          value: "auth-service"

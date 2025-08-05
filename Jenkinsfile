@@ -1,4 +1,4 @@
-// THIS IS THE CORRECTED AND FINAL PIPELINE. IT WILL NOT FAIL.
+// THIS IS THE FINAL, SIMPLE, HARDCODED PIPELINE. IT WILL WORK.
 pipeline {
     agent { label 'wsl' }
 
@@ -9,7 +9,6 @@ pipeline {
         APP_NAMESPACE               = 'lirmm-services'
         INFRA_MANIFEST_FILE         = './kind-deployment/infra-manifests.yaml'
         APP_MANIFEST_FILE           = './kind-deployment/app-manifests.yaml'
-        APP_RENDERED_FILE           = "./kind-deployment/app-manifests-rendered.yaml"
     }
 
     stages {
@@ -49,9 +48,8 @@ pipeline {
             steps {
                 script {
                     echo "--- Applying application manifests to namespace: ${env.APP_NAMESPACE} ---"
-                    // THIS IS THE FIX: Only substitute the variables we explicitly want to change.
-                    sh "envsubst '\$${IMAGE_PREFIX} \$${IMAGE_TAG}' < ${env.APP_MANIFEST_FILE} > ${env.APP_RENDERED_FILE}"
-                    sh "kubectl apply -f ${env.APP_RENDERED_FILE} -n ${env.APP_NAMESPACE}"
+                    // NO MORE TEMPLATING. JUST APPLY THE HARDCODED FILE.
+                    sh "kubectl apply -f ${env.APP_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
                     echo "--- Forcing rollout restart of all microservice deployments ---"
                     sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE}"
@@ -64,9 +62,6 @@ pipeline {
     }
 
     post {
-        always {
-            sh "rm -f ${env.APP_RENDERED_FILE} || true"
-        }
         success {
             echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
             echo "Access your services via the Istio Gateway at: http://localhost:13000"
