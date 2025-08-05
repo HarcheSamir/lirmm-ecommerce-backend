@@ -12,5 +12,3 @@ process.on('SIGTERM', () => {
     console.log('HTTP server closed');
   });
 });
-
-startServer();
