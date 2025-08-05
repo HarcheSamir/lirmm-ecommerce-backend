@@ -31,6 +31,8 @@ spec:
   - match:
     - uri:
         prefix: /auth
+    rewrite:
+      uri: /     
     route:
     - destination:
         # THIS IS THE FIX: Use the explicit FQDN for the service.
