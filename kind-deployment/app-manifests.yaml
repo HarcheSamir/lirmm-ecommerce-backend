@@ -30,9 +30,7 @@ spec:
   http:
   - match:
     - uri:
-        prefix: /auth
-    rewrite:
-      uri: /     
+        prefix: /auth   
     route:
     - destination:
         # THIS IS THE FIX: Use the explicit FQDN for the service.
