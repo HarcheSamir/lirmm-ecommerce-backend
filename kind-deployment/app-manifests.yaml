@@ -33,7 +33,8 @@ spec:
         prefix: /auth
     route:
     - destination:
-        host: auth-service-svc
+        # THIS IS THE FIX: Use the explicit FQDN for the service.
+        host: auth-service-svc.lirmm-services.svc.cluster.local
         port:
           number: 3001
   - match:
