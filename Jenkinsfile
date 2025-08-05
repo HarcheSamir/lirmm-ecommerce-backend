@@ -1,4 +1,4 @@
-// THIS IS THE PIPELINE FOR APPLICATION DEPLOYMENT WITH ISTIO
+// THIS IS THE CORRECTED PIPELINE FOR APPLICATION DEPLOYMENT WITH ISTIO
 pipeline {
     agent { label 'wsl' }
 
@@ -16,6 +16,11 @@ pipeline {
         stage('Deploy Infrastructure') {
             steps {
                 script {
+                    echo "--- Ensuring namespace '${env.APP_NAMESPACE}' exists ---"
+                    // THIS IS THE FIX: Idempotently create the namespace.
+                    // This command will create the namespace if it doesn't exist and will not fail if it does.
+                    sh "kubectl create namespace ${env.APP_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -"
+
                     echo "--- Applying infrastructure manifests to namespace: ${env.APP_NAMESPACE} ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
                     echo "--- Waiting for infrastructure to be ready ---"
@@ -28,7 +33,6 @@ pipeline {
             steps {
                 script {
                     echo "--- Building and loading application service images ---"
-                    // Reduced list of services for this phase
                     def services = ['api-gateway', 'auth-service']
 
                     services.each { service ->
@@ -53,7 +57,7 @@ pipeline {
                     echo "--- Forcing rollout restart of all microservice deployments ---"
                     sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Waiting for the new rollout to become available (this may take time for sidecars to start) ---"
+                    echo "--- Waiting for the new rollout to become available ---"
                     sh "kubectl wait --for=condition=Available --all deployments -n ${env.APP_NAMESPACE} --timeout=15m"
                 }
             }
@@ -67,7 +71,6 @@ pipeline {
         success {
             echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
             echo "Access your services via the Istio Gateway at: http://localhost:13000"
-            echo "Access Consul UI at: http://localhost:18500"
         }
     }
 }
