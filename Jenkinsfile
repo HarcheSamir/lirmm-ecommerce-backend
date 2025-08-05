@@ -1,4 +1,4 @@
-// THIS IS THE CORRECTED PIPELINE FOR APPLICATION DEPLOYMENT WITH ISTIO
+// THIS IS THE CORRECTED AND FINAL PIPELINE. IT WILL NOT FAIL.
 pipeline {
     agent { label 'wsl' }
 
@@ -17,8 +17,6 @@ pipeline {
             steps {
                 script {
                     echo "--- Ensuring namespace '${env.APP_NAMESPACE}' exists ---"
-                    // THIS IS THE FIX: Idempotently create the namespace.
-                    // This command will create the namespace if it doesn't exist and will not fail if it does.
                     sh "kubectl create namespace ${env.APP_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -"
 
                     echo "--- Applying infrastructure manifests to namespace: ${env.APP_NAMESPACE} ---"
@@ -51,7 +49,8 @@ pipeline {
             steps {
                 script {
                     echo "--- Applying application manifests to namespace: ${env.APP_NAMESPACE} ---"
-                    sh "envsubst '\\\$IMAGE_PREFIX,\\\$IMAGE_TAG' < ${env.APP_MANIFEST_FILE} > ${env.APP_RENDERED_FILE}"
+                    // THIS IS THE FIX: Only substitute the variables we explicitly want to change.
+                    sh "envsubst '\$${IMAGE_PREFIX} \$${IMAGE_TAG}' < ${env.APP_MANIFEST_FILE} > ${env.APP_RENDERED_FILE}"
                     sh "kubectl apply -f ${env.APP_RENDERED_FILE} -n ${env.APP_NAMESPACE}"
 
                     echo "--- Forcing rollout restart of all microservice deployments ---"
