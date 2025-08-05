@@ -1,4 +1,4 @@
-// THIS IS THE FINAL, SIMPLE, HARDCODED PIPELINE. IT WILL WORK.
+// THIS IS THE FINAL, CORRECTED, SPECIFIC PIPELINE.
 pipeline {
     agent { label 'wsl' }
 
@@ -20,8 +20,10 @@ pipeline {
 
                     echo "--- Applying infrastructure manifests to namespace: ${env.APP_NAMESPACE} ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
-                    echo "--- Waiting for infrastructure to be ready ---"
-                    sh "kubectl wait --for=condition=Available --all deployments -n ${env.APP_NAMESPACE} --timeout=5m"
+                    
+                    echo "--- Waiting ONLY for the database to be ready ---"
+                    // THIS IS THE FIX: Wait specifically for the deployment created in THIS stage.
+                    sh "kubectl wait --for=condition=Available deployment/auth-db-deployment -n ${env.APP_NAMESPACE} --timeout=5m"
                 }
             }
         }
@@ -48,13 +50,12 @@ pipeline {
             steps {
                 script {
                     echo "--- Applying application manifests to namespace: ${env.APP_NAMESPACE} ---"
-                    // NO MORE TEMPLATING. JUST APPLY THE HARDCODED FILE.
                     sh "kubectl apply -f ${env.APP_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
                     echo "--- Forcing rollout restart of all microservice deployments ---"
                     sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Waiting for the new rollout to become available ---"
+                    echo "--- Waiting for the new rollout of ALL applications to become available ---"
                     sh "kubectl wait --for=condition=Available --all deployments -n ${env.APP_NAMESPACE} --timeout=15m"
                 }
             }
