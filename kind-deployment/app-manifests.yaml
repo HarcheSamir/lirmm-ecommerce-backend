@@ -1,15 +1,72 @@
 # =================================================================
-# APPLICATION MANIFEST
-# Contains all custom microservices.
-# Apply this file on every code change using the main Jenkinsfile.
+# ISTIO GATEWAY & VIRTUAL SERVICE
+# Defines the entry point and DIRECT routing for the mesh.
 # =================================================================
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: lirmm-gateway
+  namespace: lirmm-services
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: main-routing-vs
+  namespace: lirmm-services
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - lirmm-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /auth # Route /auth traffic...
+    route:
+    - destination:
+        host: auth-service-svc # ...DIRECTLY to auth-service
+        port:
+          number: 3001
+  - match:
+    - uri:
+        prefix: / # Route all other traffic...
+    route:
+    - destination:
+        host: api-gateway-svc # ...to the api-gateway
+        port:
+          number: 3000
+# =================================================================
+# APPLICATION MANIFEST
+# =================================================================
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: api-gateway
+  ports:
+  - protocol: TCP
+    port: 3000
+    targetPort: 3000
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: api-gateway-deployment
-  labels:
-    app: api-gateway
-    app-type: microservice
+  namespace: lirmm-services
 spec:
   replicas: 1
   selector:
@@ -19,107 +76,24 @@ spec:
     metadata:
       labels:
         app: api-gateway
-        app-type: microservice
     spec:
       containers:
       - name: api-gateway
         image: ${IMAGE_PREFIX}/api-gateway:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent # THIS IS THE FIX
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
         env:
         - name: PORT
           value: "3000"
-        - name: CONSUL_AGENT_HOST
-          value: "consul-svc"
         - name: SERVICE_NAME
           value: "api-gateway"
-        - name: NODE_ENV
-          value: "development"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: api-gateway-svc
-spec:
-  selector:
-    app: api-gateway
-  ports:
-  - protocol: TCP
-    port: 3000
-    targetPort: 3000
-    nodePort: 30000
-  type: NodePort
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: auth-service-deployment
-  labels:
-    app: auth-service
-    app-type: microservice
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: auth-service
-  template:
-    metadata:
-      labels:
-        app: auth-service
-        app-type: microservice
-    spec:
-      initContainers:
-      - name: auth-db-migrate
-        image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent # THIS IS THE FIX
-        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma"]
-        env:
-        - name: DATABASE_URL
-          value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
-      containers:
-      - name: auth-service
-        image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent # THIS IS THE FIX
-        ports:
-        - containerPort: 3001
-        command: ["node", "src/index.js"]
-        env:
-        - name: PORT
-          value: "3001"
-        - name: DATABASE_URL
-          value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
-        - name: JWT_SECRET
-          value: "your-secret-key-for-docker-dev"
-        - name: CONSUL_AGENT_HOST
-          value: "consul-svc"
-        - name: SERVICE_NAME
-          value: "auth-service"
-        - name: KAFKA_BROKERS
-          value: "kafka-svc:9092"
-        - name: NODE_ENV
-          value: "development"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: auth-service-svc
+  namespace: lirmm-services
 spec:
   selector:
     app: auth-service
@@ -131,382 +105,40 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: product-service-deployment
-  labels:
-    app: product-service
-    app-type: microservice
+  name: auth-service-deployment
+  namespace: lirmm-services
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: product-service
+      app: auth-service
   template:
     metadata:
       labels:
-        app: product-service
-        app-type: microservice
+        app: auth-service
     spec:
       initContainers:
-      - name: product-db-migrate
-        image: ${IMAGE_PREFIX}/product-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent # THIS IS THE FIX
-        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma || echo 'Seed failed, continuing...'"]
+      - name: auth-db-migrate
+        image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
         - name: DATABASE_URL
-          value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
+          value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
       containers:
-      - name: product-service
-        image: ${IMAGE_PREFIX}/product-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent # THIS IS THE FIX
+      - name: auth-service
+        image: ${IMAGE_PREFIX}/auth-service:${IMAGE_TAG}
+        imagePullPolicy: IfNotPresent
         ports:
-        - containerPort: 3003
+        - containerPort: 3001
         command: ["node", "src/index.js"]
         env:
         - name: PORT
-          value: "3003"
+          value: "3001"
         - name: DATABASE_URL
-          value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
-        - name: CONSUL_AGENT_HOST
-          value: "consul-svc"
+          value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
+        - name: JWT_SECRET
+          value: "your-secret-key-for-docker-dev"
         - name: SERVICE_NAME
-          value: "product-service"
-        - name: KAFKA_BROKERS
-          value: "kafka-svc:9092"
-        - name: NODE_ENV
-          value: "development"
-        - name: IMAGE_SERVICE_BASE_URL
-          value: "http://image-service-svc:3004"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: product-service-svc
-spec:
-  selector:
-    app: product-service
-  ports:
-  - protocol: TCP
-    port: 3003
-    targetPort: 3003
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: image-service-deployment
-  labels:
-    app: image-service
-    app-type: microservice
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: image-service
-  template:
-    metadata:
-      labels:
-        app: image-service
-        app-type: microservice
-    spec:
-      containers:
-      - name: image-service
-        image: ${IMAGE_PREFIX}/image-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent # THIS IS THE FIX
-        ports:
-        - containerPort: 3004
-        volumeMounts:
-        - name: image-uploads
-          mountPath: /app/uploads
-        env:
-        - name: PORT
-          value: "3004"
-        - name: CONSUL_AGENT_HOST
-          value: "consul-svc"
-        - name: SERVICE_NAME
-          value: "image-service"
-        - name: NODE_ENV
-          value: "development"
-        - name: UPLOAD_DIR
-          value: "/app/uploads"
-        - name: IMAGE_BASE_URL
-          value: "http://localhost:13004"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-      volumes:
-      - name: image-uploads
-        emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: image-service-svc
-spec:
-  selector:
-    app: image-service
-  ports:
-  - protocol: TCP
-    port: 3004
-    targetPort: 3004
-    nodePort: 30004
-  type: NodePort
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: search-service-deployment
-  labels:
-    app: search-service
-    app-type: microservice
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: search-service
-  template:
-    metadata:
-      labels:
-        app: search-service
-        app-type: microservice
-    spec:
-      containers:
-      - name: search-service
-        image: ${IMAGE_PREFIX}/search-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent # THIS IS THE FIX
-        ports:
-        - containerPort: 3005
-        env:
-        - name: PORT
-          value: "3005"
-        - name: CONSUL_AGENT_HOST
-          value: "consul-svc"
-        - name: SERVICE_NAME
-          value: "search-service"
-        - name: KAFKA_BROKERS
-          value: "kafka-svc:9092"
-        - name: ELASTICSEARCH_NODE
-          value: "http://elasticsearch-svc:9200"
-        - name: NODE_ENV
-          value: "development"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: search-service-svc
-spec:
-  selector:
-    app: search-service
-  ports:
-  - protocol: TCP
-    port: 3005
-    targetPort: 3005
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: cart-service-deployment
-  labels:
-    app: cart-service
-    app-type: microservice
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: cart-service
-  template:
-    metadata:
-      labels:
-        app: cart-service
-        app-type: microservice
-    spec:
-      containers:
-      - name: cart-service
-        image: ${IMAGE_PREFIX}/cart-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent # THIS IS THE FIX
-        ports:
-        - containerPort: 3006
-        env:
-        - name: PORT
-          value: "3006"
-        - name: CONSUL_AGENT_HOST
-          value: "consul-svc"
-        - name: SERVICE_NAME
-          value: "cart-service"
-        - name: NODE_ENV
-          value: "development"
-        - name: REDIS_HOST
-          value: "redis-svc"
-        - name: REDIS_PORT
-          value: "6379"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: cart-service-svc
-spec:
-  selector:
-    app: cart-service
-  ports:
-  - protocol: TCP
-    port: 3006
-    targetPort: 3006
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: order-service-deployment
-  labels:
-    app: order-service
-    app-type: microservice
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: order-service
-  template:
-    metadata:
-      labels:
-        app: order-service
-        app-type: microservice
-    spec:
-      initContainers:
-      - name: order-db-migrate
-        image: ${IMAGE_PREFIX}/order-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent # THIS IS THE FIX
-        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
-        env:
-        - name: DATABASE_URL
-          value: "postgresql://postgres:postgres@order-db-svc:5432/order_db?schema=public"
-      containers:
-      - name: order-service
-        image: ${IMAGE_PREFIX}/order-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent # THIS IS THE FIX
-        ports:
-        - containerPort: 3007
-        env:
-        - name: PORT
-          value: "3007"
-        - name: DATABASE_URL
-          value: "postgresql://postgres:postgres@order-db-svc:5432/order_db?schema=public"
-        - name: CONSUL_AGENT_HOST
-          value: "consul-svc"
-        - name: SERVICE_NAME
-          value: "order-service"
-        - name: KAFKA_BROKERS
-          value: "kafka-svc:9092"
-        - name: NODE_ENV
-          value: "development"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: order-service-svc
-spec:
-  selector:
-    app: order-service
-  ports:
-  - protocol: TCP
-    port: 3007
-    targetPort: 3007
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: review-service-deployment
-  labels:
-    app: review-service
-    app-type: microservice
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: review-service
-  template:
-    metadata:
-      labels:
-        app: review-service
-        app-type: microservice
-    spec:
-      initContainers:
-      - name: review-db-migrate
-        image: ${IMAGE_PREFIX}/review-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent # THIS IS THE FIX
-        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
-        env:
-        - name: DATABASE_URL
-          value: "postgresql://postgres:postgres@review-db-svc:5432/review_db?schema=public"
-      containers:
-      - name: review-service
-        image: ${IMAGE_PREFIX}/review-service:${IMAGE_TAG}
-        imagePullPolicy: IfNotPresent # THIS IS THE FIX
-        ports:
-        - containerPort: 3008
-        env:
-        - name: PORT
-          value: "3008"
-        - name: DATABASE_URL
-          value: "postgresql://postgres:postgres@review-db-svc:5432/review_db?schema=public"
-        - name: CONSUL_AGENT_HOST
-          value: "consul-svc"
-        - name: SERVICE_NAME
-          value: "review-service"
-        - name: KAFKA_BROKERS
-          value: "kafka-svc:9092"
-        - name: NODE_ENV
-          value: "development"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: review-service-svc
-spec:
-  selector:
-    app: review-service
-  ports:
-  - protocol: TCP
-    port: 3008
-    targetPort: 3008
+          value: "auth-service"```
+

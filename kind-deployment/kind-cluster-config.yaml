@@ -8,53 +8,12 @@ nodes:
     nodeRegistration:
       kubeletExtraArgs:
         node-labels: "ingress-ready=true"
-    # This block increases the timeout for the cluster's internal database (etcd),
-    # preventing the 'request timed out' error during cluster creation.
-    apiServer:
-      timeoutForControlPlane: 5m
   extraPortMappings:
-  - containerPort: 30902
-    hostPort: 39092
-    protocol: TCP
-  - containerPort: 32200
-    hostPort: 19200
-    protocol: TCP
-  - containerPort: 32500
-    hostPort: 18500
-    protocol: TCP
-  - containerPort: 32379
-    hostPort: 19379
-    protocol: TCP
+  # This maps the Istio Ingress Gateway's HTTP NodePort to your host machine.
   - containerPort: 30000
     hostPort: 13000
     protocol: TCP
-  - containerPort: 30001
-    hostPort: 13001
-    protocol: TCP
-  - containerPort: 30003
-    hostPort: 13003
-    protocol: TCP
-  - containerPort: 30004
-    hostPort: 13004
-    protocol: TCP
-  - containerPort: 30005
-    hostPort: 13005
-    protocol: TCP
-  - containerPort: 30006
-    hostPort: 13006
-    protocol: TCP
-  - containerPort: 30007
-    hostPort: 13007
-    protocol: TCP
-  - containerPort: 30434
-    hostPort: 15434
-    protocol: TCP
-  - containerPort: 30435
-    hostPort: 15435
-    protocol: TCP
-  - containerPort: 30436
-    hostPort: 15436
-    protocol: TCP
-  - containerPort: 30437
-    hostPort: 15437
+  # This maps the Consul UI port to your host machine.
+  - containerPort: 32500
+    hostPort: 18500
     protocol: TCP

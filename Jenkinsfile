@@ -1,5 +1,4 @@
-// THIS IS THE FAST, FREQUENTLY RUN PIPELINE FOR APPLICATION DEPLOYMENT
-// It now uses a static ':latest' tag and explicitly forces a rollout to deploy new code.
+// THIS IS THE PIPELINE FOR APPLICATION DEPLOYMENT WITH ISTIO
 pipeline {
     agent { label 'wsl' }
 
@@ -7,19 +6,30 @@ pipeline {
         IMAGE_PREFIX                = 'lirmm-ecommerce'
         IMAGE_TAG                   = 'latest'
         KIND_CLUSTER_NAME           = "lirmm-dev-cluster"
+        APP_NAMESPACE               = 'lirmm-services'
+        INFRA_MANIFEST_FILE         = './kind-deployment/infra-manifests.yaml'
         APP_MANIFEST_FILE           = './kind-deployment/app-manifests.yaml'
         APP_RENDERED_FILE           = "./kind-deployment/app-manifests-rendered.yaml"
     }
 
     stages {
+        stage('Deploy Infrastructure') {
+            steps {
+                script {
+                    echo "--- Applying infrastructure manifests to namespace: ${env.APP_NAMESPACE} ---"
+                    sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
+                    echo "--- Waiting for infrastructure to be ready ---"
+                    sh "kubectl wait --for=condition=Available --all deployments -n ${env.APP_NAMESPACE} --timeout=5m"
+                }
+            }
+        }
+
         stage('Build & Load Application Images') {
             steps {
                 script {
-                    echo "--- Building and loading application service images with tag: ${env.IMAGE_TAG} ---"
-                    def services = [
-                        'api-gateway', 'auth-service', 'product-service', 'image-service',
-                        'search-service', 'cart-service', 'order-service', 'review-service'
-                    ]
+                    echo "--- Building and loading application service images ---"
+                    // Reduced list of services for this phase
+                    def services = ['api-gateway', 'auth-service']
 
                     services.each { service ->
                         def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
@@ -36,19 +46,15 @@ pipeline {
         stage('Deploy Application') {
             steps {
                 script {
-                    echo "--- Applying configuration to ensure it's up-to-date ---"
+                    echo "--- Applying application manifests to namespace: ${env.APP_NAMESPACE} ---"
                     sh "envsubst '\\\$IMAGE_PREFIX,\\\$IMAGE_TAG' < ${env.APP_MANIFEST_FILE} > ${env.APP_RENDERED_FILE}"
-                    sh "kubectl apply -f ${env.APP_RENDERED_FILE}"
+                    sh "kubectl apply -f ${env.APP_RENDERED_FILE} -n ${env.APP_NAMESPACE}"
 
-                    // THIS IS THE FIX:
-                    // Force a rolling restart of all microservice deployments.
-                    // This command ensures that Kubernetes terminates the old pods and creates
-                    // new ones, which will then use the new ':latest' image.
-                    echo "--- Forcing rollout restart of all microservices ---"
-                    sh "kubectl rollout restart deployment -l app-type=microservice"
+                    echo "--- Forcing rollout restart of all microservice deployments ---"
+                    sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Waiting for the new rollout to become available ---"
-                    sh "kubectl wait --for=condition=Available --all deployments -l app-type=microservice -n default --timeout=15m"
+                    echo "--- Waiting for the new rollout to become available (this may take time for sidecars to start) ---"
+                    sh "kubectl wait --for=condition=Available --all deployments -n ${env.APP_NAMESPACE} --timeout=15m"
                 }
             }
         }
@@ -59,11 +65,8 @@ pipeline {
             sh "rm -f ${env.APP_RENDERED_FILE} || true"
         }
         success {
-            echo "--- Cleaning up old, untagged Docker images ---"
-            sh "docker image prune -f"
-
             echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
-            echo "Access API Gateway at: http://localhost:13000"
+            echo "Access your services via the Istio Gateway at: http://localhost:13000"
             echo "Access Consul UI at: http://localhost:18500"
         }
     }
