@@ -5,7 +5,9 @@ find . -type f \
     -name "docker-compose.yml" -o \
     -name "Jenkinsfile" -o \
     -name "Dockerfile" -o \
-    -path "*/kind-deployment/*" \
+    -path "*/kind-deployment/*" -o \
+    -path "*/api-gateway/*" -o \
+    -path "*/auth-service/*" \
   \) \
   ! -path "*/node_modules/*" \
   ! -path "*/.git/*" \
