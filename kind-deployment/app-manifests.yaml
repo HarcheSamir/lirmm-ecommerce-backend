@@ -30,7 +30,7 @@ spec:
   http:
   - match:
     - uri:
-        prefix: /auth
+        prefix: /auth/
     rewrite:
       uri: /   
     route:
