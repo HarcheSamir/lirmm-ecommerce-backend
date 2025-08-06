@@ -1,4 +1,4 @@
-// Pipeline for frequent application deployments.
+// This is the final, correct application pipeline. It applies your proven sequential wait logic.
 pipeline {
     agent { label 'wsl' }
 
@@ -35,14 +35,22 @@ pipeline {
         stage('Deploy Application') {
             steps {
                 script {
-                    echo "--- Applying application manifests to namespace: ${env.APP_NAMESPACE} ---"
+                    echo "--- Applying ALL application manifests ---"
                     sh "kubectl apply -f ${env.APP_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Forcing rollout restart of all microservice deployments ---"
+                    echo "--- Forcing rollout restart to ensure changes are picked up ---"
                     sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Waiting for the new rollout to become available ---"
-                    sh "kubectl wait --for=condition=Available --all deployments -n ${env.APP_NAMESPACE} --timeout=15m"
+                    echo "--- Waiting for deployments to become available SEQUENTIALLY ---"
+                    // THIS IS THE FIX: Wait for each deployment individually to avoid overwhelming the control plane.
+                    sh "kubectl wait --for=condition=Available deployment/api-gateway-deployment -n ${env.APP_NAMESPACE} --timeout=3m"
+                    sh "kubectl wait --for=condition=Available deployment/auth-service-deployment -n ${env.APP_NAMESPACE} --timeout=5m"
+                    sh "kubectl wait --for=condition=Available deployment/product-service-deployment -n ${env.APP_NAMESPACE} --timeout=5m"
+                    sh "kubectl wait --for=condition=Available deployment/image-service-deployment -n ${env.APP_NAMESPACE} --timeout=3m"
+                    sh "kubectl wait --for=condition=Available deployment/search-service-deployment -n ${env.APP_NAMESPACE} --timeout=5m"
+                    sh "kubectl wait --for=condition=Available deployment/cart-service-deployment -n ${env.APP_NAMESPACE} --timeout=3m"
+                    sh "kubectl wait --for=condition=Available deployment/order-service-deployment -n ${env.APP_NAMESPACE} --timeout=5m"
+                    sh "kubectl wait --for=condition=Available deployment/review-service-deployment -n ${env.APP_NAMESPACE} --timeout=5m"
                 }
             }
         }
@@ -52,6 +60,11 @@ pipeline {
         success {
             echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
             echo "Access your services via the Istio Gateway at: http://localhost:13000"
+        }
+        failure {
+            echo "--- APPLICATION DEPLOYMENT FAILED ---"
+            echo "--- Dumping pod statuses for debugging ---"
+            sh "kubectl get pods -n ${env.APP_NAMESPACE} -o wide"
         }
     }
 }
