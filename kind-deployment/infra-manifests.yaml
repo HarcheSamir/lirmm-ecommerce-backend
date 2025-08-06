@@ -1,7 +1,196 @@
 # =================================================================
 # INFRASTRUCTURE MANIFEST
-# Contains only the database for the auth-service.
 # =================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zookeeper-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: zookeeper
+  template:
+    metadata:
+      labels:
+        component: zookeeper
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - name: zookeeper
+        image: confluentinc/cp-zookeeper:7.3.2
+        ports:
+        - containerPort: 2181
+        env:
+        - name: ZOOKEEPER_CLIENT_PORT
+          value: "2181"
+        - name: ZOOKEEPER_TICK_TIME
+          value: "2000"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    component: zookeeper
+  ports:
+  - port: 2181
+    targetPort: 2181
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: kafka
+  template:
+    metadata:
+      labels:
+        component: kafka
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - name: kafka
+        image: confluentinc/cp-kafka:7.3.2
+        ports:
+        - name: internal
+          containerPort: 9092
+        - name: external
+          containerPort: 29092
+        env:
+        - name: KAFKA_BROKER_ID
+          value: "1"
+        - name: KAFKA_ZOOKEEPER_CONNECT
+          value: "zookeeper-svc:2181"
+        - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+          value: "PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+        - name: KAFKA_ADVERTISED_LISTENERS
+          value: "PLAINTEXT://kafka-svc:9092,EXTERNAL://localhost:29092"
+        - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+          value: "true"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    component: kafka
+  ports:
+  - name: internal
+    port: 9092
+    targetPort: 9092
+  - name: external
+    port: 29092
+    targetPort: 29092
+    nodePort: 30902
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticsearch-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: elasticsearch
+  template:
+    metadata:
+      labels:
+        component: elasticsearch
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - name: elasticsearch
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+        ports:
+        - containerPort: 9200
+        env:
+        - name: discovery.type
+          value: "single-node"
+        - name: xpack.security.enabled
+          value: "false"
+        - name: ES_JAVA_OPTS
+          value: "-Xms512m -Xmx512m"
+        volumeMounts:
+        - name: es-data
+          mountPath: /usr/share/elasticsearch/data
+      volumes:
+      - name: es-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    component: elasticsearch
+  ports:
+  - port: 9200
+    targetPort: 9200
+    nodePort: 32200
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: redis
+  template:
+    metadata:
+      labels:
+        component: redis
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - name: redis
+        image: redis:7.2-alpine
+        ports:
+        - containerPort: 6379
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      volumes:
+      - name: redis-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    component: redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+    nodePort: 32379
+  type: NodePort
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -11,8 +200,7 @@ spec:
   selector:
     app: auth-db
   ports:
-  - protocol: TCP
-    port: 5432
+  - port: 5432
     targetPort: 5432
 ---
 apiVersion: apps/v1
@@ -20,8 +208,6 @@ kind: Deployment
 metadata:
   name: auth-db-deployment
   namespace: lirmm-services
-  labels:
-    app: auth-db
 spec:
   replicas: 1
   selector:
@@ -32,12 +218,11 @@ spec:
       labels:
         app: auth-db
       annotations:
-        sidecar.istio.io/inject: "false" # Exclude infra from mesh
+        sidecar.istio.io/inject: "false"
     spec:
       containers:
       - name: auth-db
         image: postgres:15-alpine
-        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432
         env:
@@ -52,4 +237,148 @@ spec:
           mountPath: /var/lib/postgresql/data
       volumes:
       - name: auth-db-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-db-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: product-db
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-db-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-db
+  template:
+    metadata:
+      labels:
+        app: product-db
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - name: product-db
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          value: "postgres"
+        - name: POSTGRES_DB
+          value: "product_db"
+        volumeMounts:
+        - name: product-db-data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: product-db-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-db-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: order-db
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-db-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-db
+  template:
+    metadata:
+      labels:
+        app: order-db
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - name: order-db
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          value: "postgres"
+        - name: POSTGRES_DB
+          value: "order_db"
+        volumeMounts:
+        - name: order-db-data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: order-db-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-db-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: review-db
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-db-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: review-db
+  template:
+    metadata:
+      labels:
+        app: review-db
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - name: review-db
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          value: "postgres"
+        - name: POSTGRES_DB
+          value: "review_db"
+        volumeMounts:
+        - name: review-db-data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: review-db-data
         emptyDir: {}

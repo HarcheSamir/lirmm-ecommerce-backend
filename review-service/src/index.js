@@ -1,5 +1,4 @@
-const { app } = require('./config/app');
-const { registerService } = require('./config/consul');
+const app = require('./config/app');
 const { connectConsumer, disconnectConsumer } = require('./kafka/consumer');
 const { connectProducer, disconnectProducer } = require('./kafka/producer');
 
@@ -10,30 +9,25 @@ const startServer = async () => {
     try {
         await connectConsumer();
         await connectProducer();
-
-        server = app.listen(PORT, async () => {
+        server = app.listen(PORT, () => {
             console.log(`Review Service running on port ${PORT}`);
-            await registerService();
         });
 
-        const shutdown = async (signal) => {
-            console.log(`\n${signal} received. Shutting down gracefully...`);
+        const shutdown = (signal) => {
+            console.log(`${signal} received. Shutting down...`);
             server.close(async () => {
-                console.log('HTTP server closed.');
                 await disconnectConsumer();
                 await disconnectProducer();
+                console.log('HTTP server closed.');
             });
         };
-
         process.on('SIGINT', () => shutdown('SIGINT'));
         process.on('SIGTERM', () => shutdown('SIGTERM'));
-
     } catch (error) {
         console.error('Failed to start Review Service:', error);
-        await disconnectConsumer().catch(e => console.error("Error disconnecting consumer on failure:", e));
-        await disconnectProducer().catch(e => console.error("Error disconnecting producer on failure:", e));
+        await disconnectConsumer();
+        await disconnectProducer();
         process.exit(1);
     }
 };
-
 startServer();

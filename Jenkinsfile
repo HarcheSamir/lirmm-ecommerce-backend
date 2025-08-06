@@ -1,38 +1,25 @@
-// THIS IS THE FINAL, CORRECTED, SPECIFIC PIPELINE.
+// Pipeline for frequent application deployments.
+// Assumes the infrastructure pipeline has already been run successfully.
 pipeline {
     agent { label 'wsl' }
 
     environment {
-        IMAGE_PREFIX                = 'lirmm-ecommerce'
-        IMAGE_TAG                   = 'latest'
-        KIND_CLUSTER_NAME           = "lirmm-dev-cluster"
-        APP_NAMESPACE               = 'lirmm-services'
-        INFRA_MANIFEST_FILE         = './kind-deployment/infra-manifests.yaml'
-        APP_MANIFEST_FILE           = './kind-deployment/app-manifests.yaml'
+        IMAGE_PREFIX        = 'lirmm-ecommerce'
+        IMAGE_TAG           = 'latest'
+        KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
+        APP_NAMESPACE       = 'lirmm-services'
+        APP_MANIFEST_FILE   = './kind-deployment/app-manifests.yaml'
     }
 
     stages {
-        stage('Deploy Infrastructure') {
-            steps {
-                script {
-                    echo "--- Ensuring namespace '${env.APP_NAMESPACE}' exists ---"
-                    sh "kubectl create namespace ${env.APP_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -"
-
-                    echo "--- Applying infrastructure manifests to namespace: ${env.APP_NAMESPACE} ---"
-                    sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
-                    
-                    echo "--- Waiting ONLY for the database to be ready ---"
-                    // THIS IS THE FIX: Wait specifically for the deployment created in THIS stage.
-                    sh "kubectl wait --for=condition=Available deployment/auth-db-deployment -n ${env.APP_NAMESPACE} --timeout=5m"
-                }
-            }
-        }
-
         stage('Build & Load Application Images') {
             steps {
                 script {
-                    echo "--- Building and loading application service images ---"
-                    def services = ['api-gateway', 'auth-service']
+                    echo "--- Building and loading all application service images ---"
+                    def services = [
+                        'api-gateway', 'auth-service', 'product-service', 'image-service',
+                        'search-service', 'cart-service', 'order-service', 'review-service'
+                    ]
 
                     services.each { service ->
                         def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
@@ -55,7 +42,7 @@ pipeline {
                     echo "--- Forcing rollout restart of all microservice deployments ---"
                     sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Waiting for the new rollout of ALL applications to become available ---"
+                    echo "--- Waiting for the new rollout to become available ---"
                     sh "kubectl wait --for=condition=Available --all deployments -n ${env.APP_NAMESPACE} --timeout=15m"
                 }
             }

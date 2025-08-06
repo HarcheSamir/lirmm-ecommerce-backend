@@ -9,11 +9,19 @@ nodes:
       kubeletExtraArgs:
         node-labels: "ingress-ready=true"
   extraPortMappings:
-  # This maps the Istio Ingress Gateway's HTTP NodePort to your host machine.
+  # Istio Ingress Gateway
   - containerPort: 30000
     hostPort: 13000
     protocol: TCP
-  # This maps the Consul UI port to your host machine.
-  - containerPort: 32500
-    hostPort: 18500
+  # Kafka
+  - containerPort: 30902
+    hostPort: 29092
+    protocol: TCP
+  # Elasticsearch
+  - containerPort: 32200
+    hostPort: 9200
+    protocol: TCP
+  # Redis
+  - containerPort: 32379
+    hostPort: 6379
     protocol: TCP

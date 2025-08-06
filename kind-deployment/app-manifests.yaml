@@ -32,23 +32,92 @@ spec:
     - uri:
         prefix: /auth/
     rewrite:
-      uri: /   
+      uri: /
     route:
     - destination:
-        # THIS IS THE FIX: Use the explicit FQDN for the service.
         host: auth-service-svc.lirmm-services.svc.cluster.local
         port:
           number: 3001
   - match:
     - uri:
-        prefix: /
+        prefix: /products/
+    rewrite:
+      uri: /
     route:
     - destination:
-        host: api-gateway-svc
+        host: product-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3003
+  - match:
+    - uri:
+        prefix: /categories/
+    rewrite:
+      uri: /categories/
+    route:
+    - destination:
+        host: product-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3003
+  - match:
+    - uri:
+        prefix: /images/
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: image-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3004
+  - match:
+    - uri:
+        prefix: /search/
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: search-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3005
+  - match:
+    - uri:
+        prefix: /carts/
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: cart-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3006
+  - match:
+    - uri:
+        prefix: /orders/
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: order-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3007
+  - match:
+    - uri:
+        prefix: /reviews/
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: review-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3008
+  - match:
+    - uri:
+        exact: /
+    route:
+    - destination:
+        host: api-gateway-svc.lirmm-services.svc.cluster.local
         port:
           number: 3000
 # =================================================================
-# APPLICATION MANIFEST
+# APPLICATION SERVICES
 # =================================================================
 ---
 apiVersion: v1
@@ -60,8 +129,7 @@ spec:
   selector:
     app: api-gateway
   ports:
-  - protocol: TCP
-    port: 3000
+  - port: 3000
     targetPort: 3000
 ---
 apiVersion: apps/v1
@@ -100,8 +168,7 @@ spec:
   selector:
     app: auth-service
   ports:
-  - protocol: TCP
-    port: 3001
+  - port: 3001
     targetPort: 3001
 ---
 apiVersion: apps/v1
@@ -123,7 +190,7 @@ spec:
       - name: auth-db-migrate
         image: lirmm-ecommerce/auth-service:latest
         imagePullPolicy: IfNotPresent
-        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
+        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma"]
         env:
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
@@ -133,7 +200,6 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3001
-        command: ["node", "src/index.js"]
         env:
         - name: PORT
           value: "3001"
@@ -143,3 +209,293 @@ spec:
           value: "your-secret-key-for-docker-dev"
         - name: SERVICE_NAME
           value: "auth-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-service-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: product-service
+  ports:
+  - port: 3003
+    targetPort: 3003
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-service
+  template:
+    metadata:
+      labels:
+        app: product-service
+    spec:
+      initContainers:
+      - name: product-db-migrate
+        image: lirmm-ecommerce/product-service:latest
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma"]
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
+      containers:
+      - name: product-service
+        image: lirmm-ecommerce/product-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3003
+        env:
+        - name: PORT
+          value: "3003"
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
+        - name: SERVICE_NAME
+          value: "product-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: image-service-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: image-service
+  ports:
+  - port: 3004
+    targetPort: 3004
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: image-service-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: image-service
+  template:
+    metadata:
+      labels:
+        app: image-service
+    spec:
+      containers:
+      - name: image-service
+        image: lirmm-ecommerce/image-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3004
+        volumeMounts:
+        - name: image-uploads
+          mountPath: /app/uploads
+        env:
+        - name: PORT
+          value: "3004"
+        - name: SERVICE_NAME
+          value: "image-service"
+        - name: UPLOAD_DIR
+          value: "/app/uploads"
+        - name: IMAGE_BASE_URL
+          value: "http://localhost:13000" # Use gateway URL
+      volumes:
+      - name: image-uploads
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: search-service-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: search-service
+  ports:
+  - port: 3005
+    targetPort: 3005
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search-service-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: search-service
+  template:
+    metadata:
+      labels:
+        app: search-service
+    spec:
+      containers:
+      - name: search-service
+        image: lirmm-ecommerce/search-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3005
+        env:
+        - name: PORT
+          value: "3005"
+        - name: SERVICE_NAME
+          value: "search-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"
+        - name: ELASTICSEARCH_NODE
+          value: "http://elasticsearch-svc:9200"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cart-service-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: cart-service
+  ports:
+  - port: 3006
+    targetPort: 3006
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cart-service-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cart-service
+  template:
+    metadata:
+      labels:
+        app: cart-service
+    spec:
+      containers:
+      - name: cart-service
+        image: lirmm-ecommerce/cart-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3006
+        env:
+        - name: PORT
+          value: "3006"
+        - name: SERVICE_NAME
+          value: "cart-service"
+        - name: REDIS_HOST
+          value: "redis-svc"
+        - name: REDIS_PORT
+          value: "6379"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: order-service
+  ports:
+  - port: 3007
+    targetPort: 3007
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      initContainers:
+      - name: order-db-migrate
+        image: lirmm-ecommerce/order-service:latest
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@order-db-svc:5432/order_db?schema=public"
+      containers:
+      - name: order-service
+        image: lirmm-ecommerce/order-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3007
+        env:
+        - name: PORT
+          value: "3007"
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@order-db-svc:5432/order_db?schema=public"
+        - name: SERVICE_NAME
+          value: "order-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-service-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: review-service
+  ports:
+  - port: 3008
+    targetPort: 3008
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-service-deployment
+  namespace: lirmm-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: review-service
+  template:
+    metadata:
+      labels:
+        app: review-service
+    spec:
+      initContainers:
+      - name: review-db-migrate
+        image: lirmm-ecommerce/review-service:latest
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@review-db-svc:5432/review_db?schema=public"
+      containers:
+      - name: review-service
+        image: lirmm-ecommerce/review-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3008
+        env:
+        - name: PORT
+          value: "3008"
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@review-db-svc:5432/review_db?schema=public"
+        - name: SERVICE_NAME
+          value: "review-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"

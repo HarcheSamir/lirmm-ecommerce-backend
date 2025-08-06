@@ -1,65 +1,45 @@
-// THIS PIPELINE IS FOR ONE-TIME SETUP. RUN IT MANUALLY.
+// Pipeline to set up the Kubernetes cluster, Istio, and all backing infrastructure services.
+// Run this once to prepare the environment.
 pipeline {
     agent { label 'wsl' }
 
     environment {
-        KIND_CLUSTER_NAME        = "lirmm-dev-cluster"
-        KIND_CONFIG_FILE         = './kind-deployment/kind-cluster-config.yaml'
-        INFRA_MANIFEST_FILE      = './kind-deployment/infra-manifests.yaml'
+        APP_NAMESPACE       = 'lirmm-services'
+        INFRA_MANIFEST_FILE = './kind-deployment/infra-manifests.yaml'
     }
 
     stages {
-        stage('Create Cluster & Deploy Infrastructure') {
+        stage('Setup Kind Cluster and Istio') {
             steps {
                 script {
-                    def publicImages = [
-                        'postgres:15-alpine',
-                        'confluentinc/cp-zookeeper:7.3.2',
-                        'confluentinc/cp-kafka:7.3.2',
-                        'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
-                        'hashicorp/consul:1.18',
-                        'redis:7.2-alpine'
-                    ]
+                    echo "--- Running the main setup script to create the cluster and install Istio ---"
+                    sh "chmod +x ./kind-deployment/setup-kind.sh"
+                    sh "./kind-deployment/setup-kind.sh"
+                }
+            }
+        }
+        stage('Deploy Infrastructure Services') {
+            steps {
+                script {
+                    echo "--- Ensuring namespace '${env.APP_NAMESPACE}' exists ---"
+                    sh "kubectl create namespace ${env.APP_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -"
 
-                    echo "--- Pulling heavy public images ---"
-                    publicImages.each { image ->
-                        sh "docker pull ${image}"
-                    }
+                    echo "--- Applying infrastructure manifests (DBs, Kafka, etc.) ---"
+                    sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Creating Kind cluster (if it does not exist) ---"
-                    // THIS IS THE CORRECTED LINE: The final '$' is escaped as '\$'
-                    if (sh(script: "kind get clusters | grep -q '^${env.KIND_CLUSTER_NAME}\$'", returnStatus: true) != 0) {
-                        echo "Cluster '${env.KIND_CLUSTER_NAME}' not found. Creating..."
-                        sh "kind create cluster --name ${env.KIND_CLUSTER_NAME} --config ${env.KIND_CONFIG_FILE}"
-                    } else {
-                        echo "Cluster '${env.KIND_CLUSTER_NAME}' already exists. Skipping creation."
-                    }
-
-                    echo "--- Loading heavy images into Kind (this will be slow) ---"
-                    publicImages.each { image ->
-                        echo "Loading: ${image}"
-                        sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME}"
-                    }
-
-                    echo "--- Deploying Infrastructure to Kind cluster ---"
-                    sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE}"
-
-                    echo "--- Waiting for infrastructure to become available ---"
-                    sh "kubectl wait --for=condition=Available deployment -l component=zookeeper -n default --timeout=5m"
-                    sh "kubectl wait --for=condition=Available deployment -l component=kafka -n default --timeout=5m"
-                    sh "kubectl wait --for=condition=Available deployment -l component=elasticsearch -n default --timeout=15m"
-                    sh "kubectl wait --for=condition=Available deployment -l component=consul -n default --timeout=5m"
-                    sh "kubectl wait --for=condition=Available deployment -l component=redis -n default --timeout=5m"
-                    sh "kubectl wait --for=condition=Available deployment -l component=database -n default --timeout=5m"
+                    echo "--- Waiting for all infrastructure deployments to become available ---"
+                    sh "kubectl wait --for=condition=Available --all deployments -n ${env.APP_NAMESPACE} --timeout=15m"
                 }
             }
         }
     }
     post {
         success {
-            echo "--- INFRASTRUCTURE SETUP SUCCEEDED ---"
-            echo "Kind cluster '${env.KIND_CLUSTER_NAME}' is running with all necessary infrastructure."
-            echo "You can now run the main 'Application-Deploy' pipeline."
+            echo "--- INFRASTRUCTURE DEPLOYMENT SUCCEEDED ---"
+            echo "The cluster is ready for the application deployment pipeline."
+            echo "Access services via Istio Gateway at: http://localhost:13000"
+            echo "Access Kafka externally at: localhost:29092"
+            echo "Access Elasticsearch at: http://localhost:9200"
         }
     }
 }
