@@ -138,6 +138,8 @@ kind: Deployment
 metadata:
   name: api-gateway-deployment
   namespace: lirmm-services
+  labels:
+    app-type: microservice
 spec:
   replicas: 1
   selector:
@@ -178,6 +180,8 @@ kind: Deployment
 metadata:
   name: auth-service-deployment
   namespace: lirmm-services
+  labels:
+    app-type: microservice
 spec:
   replicas: 1
   selector:
@@ -232,6 +236,8 @@ kind: Deployment
 metadata:
   name: product-service-deployment
   namespace: lirmm-services
+  labels:
+    app-type: microservice
 spec:
   replicas: 1
   selector:
@@ -284,6 +290,8 @@ kind: Deployment
 metadata:
   name: image-service-deployment
   namespace: lirmm-services
+  labels:
+    app-type: microservice
 spec:
   replicas: 1
   selector:
@@ -334,6 +342,8 @@ kind: Deployment
 metadata:
   name: search-service-deployment
   namespace: lirmm-services
+  labels:
+    app-type: microservice
 spec:
   replicas: 1
   selector:
@@ -378,6 +388,8 @@ kind: Deployment
 metadata:
   name: cart-service-deployment
   namespace: lirmm-services
+  labels:
+    app-type: microservice
 spec:
   replicas: 1
   selector:
@@ -422,6 +434,8 @@ kind: Deployment
 metadata:
   name: order-service-deployment
   namespace: lirmm-services
+  labels:
+    app-type: microservice
 spec:
   replicas: 1
   selector:
@@ -474,6 +488,8 @@ kind: Deployment
 metadata:
   name: review-service-deployment
   namespace: lirmm-services
+  labels:
+    app-type: microservice
 spec:
   replicas: 1
   selector:

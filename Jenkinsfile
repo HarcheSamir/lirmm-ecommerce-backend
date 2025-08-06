@@ -1,4 +1,4 @@
-// This is the final, correct application pipeline. It applies your proven sequential wait logic.
+// This is the final, correct application pipeline. It restarts ONLY the applications.
 pipeline {
     agent { label 'wsl' }
 
@@ -22,10 +22,7 @@ pipeline {
 
                     services.each { service ->
                         def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
-                        echo "Building ${imageName}"
                         sh "docker build -t ${imageName} ./${service}"
-
-                        echo "Loading ${imageName} into Kind"
                         sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
                     }
                 }
@@ -38,19 +35,11 @@ pipeline {
                     echo "--- Applying ALL application manifests ---"
                     sh "kubectl apply -f ${env.APP_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Forcing rollout restart to ensure changes are picked up ---"
-                    sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE}"
+                    echo "--- Forcing rollout restart of ONLY microservice deployments ---"
+                    sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l app-type=microservice"
 
-                    echo "--- Waiting for deployments to become available SEQUENTIALLY ---"
-                    // THIS IS THE FIX: Wait for each deployment individually to avoid overwhelming the control plane.
-                    sh "kubectl wait --for=condition=Available deployment/api-gateway-deployment -n ${env.APP_NAMESPACE} --timeout=3m"
-                    sh "kubectl wait --for=condition=Available deployment/auth-service-deployment -n ${env.APP_NAMESPACE} --timeout=5m"
-                    sh "kubectl wait --for=condition=Available deployment/product-service-deployment -n ${env.APP_NAMESPACE} --timeout=5m"
-                    sh "kubectl wait --for=condition=Available deployment/image-service-deployment -n ${env.APP_NAMESPACE} --timeout=3m"
-                    sh "kubectl wait --for=condition=Available deployment/search-service-deployment -n ${env.APP_NAMESPACE} --timeout=5m"
-                    sh "kubectl wait --for=condition=Available deployment/cart-service-deployment -n ${env.APP_NAMESPACE} --timeout=3m"
-                    sh "kubectl wait --for=condition=Available deployment/order-service-deployment -n ${env.APP_NAMESPACE} --timeout=5m"
-                    sh "kubectl wait --for=condition=Available deployment/review-service-deployment -n ${env.APP_NAMESPACE} --timeout=5m"
+                    echo "--- Waiting for microservice deployments to become available ---"
+                    sh "kubectl wait --for=condition=Available deployment -n ${env.APP_NAMESPACE} -l app-type=microservice --timeout=15m"
                 }
             }
         }
