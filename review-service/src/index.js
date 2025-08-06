@@ -1,4 +1,5 @@
-const app = require('./config/app');
+// THIS IS THE FIX: Destructure 'app' from the import.
+const { app } = require('./config/app');
 const { connectConsumer, disconnectConsumer } = require('./kafka/consumer');
 const { connectProducer, disconnectProducer } = require('./kafka/producer');
 
