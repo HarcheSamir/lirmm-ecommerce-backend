@@ -1,5 +1,5 @@
 # =================================================================
-# INFRASTRUCTURE MANIFEST - YOUR ORIGINAL FILE, MINUS CONSUL
+# INFRASTRUCTURE MANIFEST (YOURS, ADAPTED FOR ISTIO)
 # =================================================================
 apiVersion: apps/v1
 kind: Deployment

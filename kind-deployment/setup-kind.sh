@@ -15,7 +15,7 @@ create_cluster() {
 }
 
 install_istio() {
-    # The PATH is now correctly set by the Jenkinsfile, so we can call istioctl directly.
+    # The PATH is correctly set by the Jenkinsfile, so we can call istioctl directly.
     echo "--- Checking for istioctl in the PATH ---"
     if ! command -v istioctl &> /dev/null
     then

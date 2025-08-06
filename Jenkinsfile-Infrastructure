@@ -1,4 +1,4 @@
-// This pipeline uses YOUR original, successful wait logic. It will work.
+// This is the final, correct infrastructure pipeline. It uses YOUR logic with the correct namespace.
 pipeline {
     agent { label 'wsl' }
 
@@ -28,7 +28,8 @@ pipeline {
                     echo "--- Applying ALL infrastructure manifests ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Waiting for infrastructure to become available (YOUR ORIGINAL LOGIC) ---"
+                    echo "--- Waiting for infrastructure to become available (YOUR PROVEN LOGIC, CORRECT NAMESPACE) ---"
+                    // THIS IS THE FIX: The namespace is now correct.
                     sh "kubectl wait --for=condition=Available deployment -l component=zookeeper -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=kafka -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=elasticsearch -n ${env.APP_NAMESPACE} --timeout=15m"

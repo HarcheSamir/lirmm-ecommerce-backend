@@ -1,5 +1,4 @@
 // Pipeline for frequent application deployments.
-// Assumes the infrastructure pipeline has already been run successfully.
 pipeline {
     agent { label 'wsl' }
 
