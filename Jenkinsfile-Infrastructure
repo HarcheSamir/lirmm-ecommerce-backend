@@ -1,4 +1,4 @@
-// This is the final, correct infrastructure pipeline. It fixes the namespace race condition.
+// This is the final, correct infrastructure pipeline. The typo has been fixed.
 pipeline {
     agent { label 'wsl' }
 
@@ -25,12 +25,12 @@ pipeline {
                     echo "--- Ensuring namespace '${env.APP_NAMESPACE}' exists ---"
                     sh "kubectl create namespace ${env.APP_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -"
                     
-                    // THIS IS THE FIX: A short, simple wait after creating the namespace.
                     echo "--- Pausing for 15 seconds to allow CNI to stabilize for new namespace ---"
                     sleep(time: 15, unit: 'SECONDS')
 
                     echo "--- Applying ALL infrastructure manifests ---"
-                    sh "kubectl apply -f ${env.INF_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
+                    // THIS IS THE FIX: The variable name is now correct.
+                    sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
                     echo "--- Waiting for infrastructure to become available ---"
                     sh "kubectl wait --for=condition=Available deployment -l component=zookeeper -n ${env.APP_NAMESPACE} --timeout=5m"
