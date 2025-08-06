@@ -1,11 +1,13 @@
 # =================================================================
-# INFRASTRUCTURE MANIFEST
+# INFRASTRUCTURE MANIFEST - YOUR ORIGINAL FILE, MINUS CONSUL
 # =================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: zookeeper-deployment
   namespace: lirmm-services
+  labels:
+    component: zookeeper
 spec:
   replicas: 1
   selector:
@@ -21,6 +23,7 @@ spec:
       containers:
       - name: zookeeper
         image: confluentinc/cp-zookeeper:7.3.2
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 2181
         env:
@@ -38,7 +41,8 @@ spec:
   selector:
     component: zookeeper
   ports:
-  - port: 2181
+  - protocol: TCP
+    port: 2181
     targetPort: 2181
 ---
 apiVersion: apps/v1
@@ -46,6 +50,8 @@ kind: Deployment
 metadata:
   name: kafka-deployment
   namespace: lirmm-services
+  labels:
+    component: kafka
 spec:
   replicas: 1
   selector:
@@ -61,6 +67,7 @@ spec:
       containers:
       - name: kafka
         image: confluentinc/cp-kafka:7.3.2
+        imagePullPolicy: IfNotPresent
         ports:
         - name: internal
           containerPort: 9092
@@ -90,9 +97,11 @@ spec:
     component: kafka
   ports:
   - name: internal
+    protocol: TCP
     port: 9092
     targetPort: 9092
   - name: external
+    protocol: TCP
     port: 29092
     targetPort: 29092
     nodePort: 30902
@@ -103,6 +112,8 @@ kind: Deployment
 metadata:
   name: elasticsearch-deployment
   namespace: lirmm-services
+  labels:
+    component: elasticsearch
 spec:
   replicas: 1
   selector:
@@ -118,6 +129,7 @@ spec:
       containers:
       - name: elasticsearch
         image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9200
         env:
@@ -153,6 +165,8 @@ kind: Deployment
 metadata:
   name: redis-deployment
   namespace: lirmm-services
+  labels:
+    component: redis
 spec:
   replicas: 1
   selector:
@@ -168,6 +182,7 @@ spec:
       containers:
       - name: redis
         image: redis:7.2-alpine
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 6379
         volumeMounts:
@@ -191,23 +206,13 @@ spec:
     nodePort: 32379
   type: NodePort
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: auth-db-svc
-  namespace: lirmm-services
-spec:
-  selector:
-    app: auth-db
-  ports:
-  - port: 5432
-    targetPort: 5432
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: auth-db-deployment
   namespace: lirmm-services
+  labels:
+    component: database
 spec:
   replicas: 1
   selector:
@@ -223,6 +228,7 @@ spec:
       containers:
       - name: auth-db
         image: postgres:15-alpine
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432
         env:
@@ -242,13 +248,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: product-db-svc
+  name: auth-db-svc
   namespace: lirmm-services
 spec:
   selector:
-    app: product-db
+    app: auth-db
   ports:
-  - port: 5432
+  - protocol: TCP
+    port: 5432
     targetPort: 5432
 ---
 apiVersion: apps/v1
@@ -256,6 +263,8 @@ kind: Deployment
 metadata:
   name: product-db-deployment
   namespace: lirmm-services
+  labels:
+    component: database
 spec:
   replicas: 1
   selector:
@@ -271,6 +280,7 @@ spec:
       containers:
       - name: product-db
         image: postgres:15-alpine
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432
         env:
@@ -290,13 +300,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: order-db-svc
+  name: product-db-svc
   namespace: lirmm-services
 spec:
   selector:
-    app: order-db
+    app: product-db
   ports:
-  - port: 5432
+  - protocol: TCP
+    port: 5432
     targetPort: 5432
 ---
 apiVersion: apps/v1
@@ -304,6 +315,8 @@ kind: Deployment
 metadata:
   name: order-db-deployment
   namespace: lirmm-services
+  labels:
+    component: database
 spec:
   replicas: 1
   selector:
@@ -319,6 +332,7 @@ spec:
       containers:
       - name: order-db
         image: postgres:15-alpine
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432
         env:
@@ -338,13 +352,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: review-db-svc
+  name: order-db-svc
   namespace: lirmm-services
 spec:
   selector:
-    app: review-db
+    app: order-db
   ports:
-  - port: 5432
+  - protocol: TCP
+    port: 5432
     targetPort: 5432
 ---
 apiVersion: apps/v1
@@ -352,6 +367,8 @@ kind: Deployment
 metadata:
   name: review-db-deployment
   namespace: lirmm-services
+  labels:
+    component: database
 spec:
   replicas: 1
   selector:
@@ -367,6 +384,7 @@ spec:
       containers:
       - name: review-db
         image: postgres:15-alpine
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432
         env:
@@ -382,3 +400,16 @@ spec:
       volumes:
       - name: review-db-data
         emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-db-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: review-db
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432
