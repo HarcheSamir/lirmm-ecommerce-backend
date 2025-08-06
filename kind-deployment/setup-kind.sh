@@ -15,11 +15,11 @@ create_cluster() {
 }
 
 install_istio() {
-    echo "--- Checking for istioctl ---"
+    # The PATH is now correctly set by the Jenkinsfile, so we can call istioctl directly.
+    echo "--- Checking for istioctl in the PATH ---"
     if ! command -v istioctl &> /dev/null
     then
-        echo "istioctl could not be found. Please install it first."
-        echo "See: https://istio.io/latest/docs/setup/getting-started/"
+        echo "FATAL: istioctl could not be found in the PATH provided by Jenkins."
         exit 1
     fi
 
@@ -27,7 +27,6 @@ install_istio() {
     istioctl install --set profile=demo -y
 
     echo "--- Configuring Istio Ingress Gateway Service ---"
-    # Patch the service to use a predictable NodePort that matches kind-cluster-config.yaml
     kubectl patch svc istio-ingressgateway -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/ports/1/nodePort", "value":30000}]'
     kubectl patch svc istio-ingressgateway -n istio-system -p '{"spec": {"type": "NodePort"}}'
 
@@ -47,7 +46,4 @@ install_istio
 setup_namespace
 echo "---"
 echo "--- SETUP COMPLETE ---"
-echo "Your Istio-enabled Kind cluster is ready."
-echo "Deploy your applications to the '${APP_NAMESPACE}' namespace."
-echo "Access services via Istio Ingress at: http://localhost:13000"
 echo "---"

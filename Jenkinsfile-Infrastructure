@@ -1,9 +1,13 @@
 // Pipeline to set up the Kubernetes cluster, Istio, and all backing infrastructure services.
-// Run this once to prepare the environment.
+// This version is self-contained and does not require UI configuration.
 pipeline {
     agent { label 'wsl' }
 
     environment {
+        // THIS IS THE FIX, PART 1: Define the location of the istioctl binary's directory.
+        // This is now version-controlled and explicit.
+        ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
+
         APP_NAMESPACE       = 'lirmm-services'
         INFRA_MANIFEST_FILE = './kind-deployment/infra-manifests.yaml'
     }
@@ -11,10 +15,13 @@ pipeline {
     stages {
         stage('Setup Kind Cluster and Istio') {
             steps {
-                script {
-                    echo "--- Running the main setup script to create the cluster and install Istio ---"
-                    sh "chmod +x ./kind-deployment/setup-kind.sh"
-                    sh "./kind-deployment/setup-kind.sh"
+                // THIS IS THE FIX, PART 2: Temporarily add the defined directory to the PATH.
+                withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
+                    script {
+                        echo "--- Running the main setup script with modified PATH ---"
+                        sh "chmod +x ./kind-deployment/setup-kind.sh"
+                        sh "./kind-deployment/setup-kind.sh"
+                    }
                 }
             }
         }
@@ -37,9 +44,6 @@ pipeline {
         success {
             echo "--- INFRASTRUCTURE DEPLOYMENT SUCCEEDED ---"
             echo "The cluster is ready for the application deployment pipeline."
-            echo "Access services via Istio Gateway at: http://localhost:13000"
-            echo "Access Kafka externally at: localhost:29092"
-            echo "Access Elasticsearch at: http://localhost:9200"
         }
     }
 }
