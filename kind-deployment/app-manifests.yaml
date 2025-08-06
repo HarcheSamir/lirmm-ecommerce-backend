@@ -129,7 +129,8 @@ spec:
   selector:
     app: api-gateway
   ports:
-  - port: 3000
+  - name: http
+    port: 3000
     targetPort: 3000
 ---
 apiVersion: apps/v1
@@ -168,7 +169,8 @@ spec:
   selector:
     app: auth-service
   ports:
-  - port: 3001
+  - name: http
+    port: 3001
     targetPort: 3001
 ---
 apiVersion: apps/v1
@@ -221,7 +223,8 @@ spec:
   selector:
     app: product-service
   ports:
-  - port: 3003
+  - name: http
+    port: 3003
     targetPort: 3003
 ---
 apiVersion: apps/v1
@@ -272,7 +275,8 @@ spec:
   selector:
     app: image-service
   ports:
-  - port: 3004
+  - name: http
+    port: 3004
     targetPort: 3004
 ---
 apiVersion: apps/v1
@@ -307,7 +311,7 @@ spec:
         - name: UPLOAD_DIR
           value: "/app/uploads"
         - name: IMAGE_BASE_URL
-          value: "http://localhost:13000" # Use gateway URL
+          value: "http://localhost:13000"
       volumes:
       - name: image-uploads
         emptyDir: {}
@@ -321,7 +325,8 @@ spec:
   selector:
     app: search-service
   ports:
-  - port: 3005
+  - name: http
+    port: 3005
     targetPort: 3005
 ---
 apiVersion: apps/v1
@@ -364,7 +369,8 @@ spec:
   selector:
     app: cart-service
   ports:
-  - port: 3006
+  - name: http
+    port: 3006
     targetPort: 3006
 ---
 apiVersion: apps/v1
@@ -407,7 +413,8 @@ spec:
   selector:
     app: order-service
   ports:
-  - port: 3007
+  - name: http
+    port: 3007
     targetPort: 3007
 ---
 apiVersion: apps/v1
@@ -458,7 +465,8 @@ spec:
   selector:
     app: review-service
   ports:
-  - port: 3008
+  - name: http
+    port: 3008
     targetPort: 3008
 ---
 apiVersion: apps/v1
