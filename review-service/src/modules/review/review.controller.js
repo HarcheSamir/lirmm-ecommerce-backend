@@ -1,7 +1,7 @@
 const prisma = require('../../config/prisma');
-const { findService } = require('../../config/consul');
 const { sendMessage } = require('../../kafka/producer');
 const axios = require('axios');
+const ORDER_SERVICE_URL = 'http://order-service-svc.lirmm-services.svc.cluster.local:3007';
 
 const reviewInclude = {
     user: { select: { id: true, name: true, profileImage: true } },
@@ -48,15 +48,12 @@ const createReview = async (req, res, next) => {
         if (!user) return res.status(404).json({ message: 'User not found.' });
 
         let isVerified = false;
-        const orderServiceUrl = await findService('order-service');
-        if (orderServiceUrl) {
-            try {
-                const url = `${orderServiceUrl}/internal/verify-purchase?userId=${userId}&productId=${productId}`;
-                const response = await axios.get(url, { timeout: 3000 });
-                isVerified = response.data.verified === true;
-            } catch (error) {
-                console.warn(`Could not verify purchase with order-service: ${error.message}`);
-            }
+        try {
+            const url = `${ORDER_SERVICE_URL}/internal/verify-purchase?userId=${userId}&productId=${productId}`;
+            const response = await axios.get(url, { timeout: 3000 });
+            isVerified = response.data.verified === true;
+        } catch (error) {
+            console.warn(`Could not verify purchase with order-service: ${error.message}`);
         }
 
         const newReview = await prisma.review.create({
@@ -159,8 +156,6 @@ const getMyReviews = async (req, res, next) => {
         next(err);
     }
 };
-
-
 
 const getAllReviews = async (req, res, next) => {
     try {

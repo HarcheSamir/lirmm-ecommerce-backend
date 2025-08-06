@@ -1,7 +1,7 @@
 const prisma = require('../../config/prisma');
 const axios = require('axios');
 const { faker } = require('@faker-js/faker');
-const { findService } = require('../../config/consul');
+const PRODUCT_SERVICE_URL = 'http://product-service-svc.lirmm-services.svc.cluster.local:3003';
 
 const createError = (message, statusCode) => {
   const error = new Error(message);
@@ -76,11 +76,6 @@ const createOrder = async (req, res, next) => {
   }
 
   try {
-    const productSvcUrl = await findService('product-service');
-    if (!productSvcUrl) {
-      throw createError('Product service is currently unavailable for stock adjustment.', 503);
-    }
-
     const createdOrderId = await prisma.$transaction(async (tx) => {
       const productIds = items.map(item => item.productId);
       const localProducts = await tx.product.findMany({
@@ -111,7 +106,7 @@ const createOrder = async (req, res, next) => {
         const localProduct = localProductMap.get(item.productId);
         if (!localProduct) throw createError(`Product with ID ${item.productId} not found.`, 404);
 
-        const stockAdjustUrl = `${productSvcUrl}/stock/adjust/${item.variantId}`;
+        const stockAdjustUrl = `${PRODUCT_SERVICE_URL}/stock/adjust/${item.variantId}`;
         await axios.post(stockAdjustUrl, {
           changeQuantity: -item.quantity,
           type: 'ORDER',
@@ -311,12 +306,7 @@ const seedGuestOrders = async (req, res, next) => {
     const errors = [];
 
     try {
-        const productSvcUrl = await findService('product-service');
-        if (!productSvcUrl) {
-            return res.status(503).json({ message: 'Product service is unavailable.' });
-        }
-        
-        const response = await axios.get(`${productSvcUrl}/?limit=200&inStock=true`);
+        const response = await axios.get(`${PRODUCT_SERVICE_URL}/?limit=200&inStock=true`);
         products = response.data.data.filter(p => p.isActive && p.variants && p.variants.some(v => v.stockQuantity > 0));
 
         if (products.length === 0) {
@@ -337,7 +327,7 @@ const seedGuestOrders = async (req, res, next) => {
 
             for (let j = 0; j < numItems; j++) {
                 const randomProduct = faker.helpers.arrayElement(products);
-                
+
                 const availableVariants = randomProduct.variants.filter(v => {
                     const currentStock = tempStockMap.get(v.id) ?? v.stockQuantity;
                     return currentStock > 0;
@@ -350,7 +340,7 @@ const seedGuestOrders = async (req, res, next) => {
                     const stock = tempStockMap.get(randomVariant.id) ?? randomVariant.stockQuantity;
                     const maxQuantity = Math.min(stock, 3);
                     const orderQuantity = faker.number.int({ min: 1, max: maxQuantity });
-                    
+
                     orderItems.push({
                         productId: randomProduct.id,
                         variantId: randomVariant.id,

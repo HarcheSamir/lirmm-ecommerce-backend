@@ -1,6 +1,5 @@
-// ===== FILE: order-service/src/middlewares/adminOnly.js =====
 const axios = require('axios');
-const { findService } = require('../config/consul');
+const AUTH_SERVICE_URL = 'http://auth-service-svc.lirmm-services.svc.cluster.local:3001';
 
 const adminOnlyMiddleware = async (req, res, next) => {
     try {
@@ -10,12 +9,7 @@ const adminOnlyMiddleware = async (req, res, next) => {
         }
         const token = authHeader.split(' ')[1];
 
-        const authServiceUrl = await findService('auth-service');
-        if (!authServiceUrl) {
-            return res.status(503).json({ message: 'Authentication service is unavailable.' });
-        }
-        
-        const validationUrl = `${authServiceUrl}/validate`;
+        const validationUrl = `${AUTH_SERVICE_URL}/validate`;
         const response = await axios.post(validationUrl, { token }, { timeout: 5000 });
 
         const user = response.data?.user;
@@ -24,7 +18,7 @@ const adminOnlyMiddleware = async (req, res, next) => {
             req.user = user;
             return next();
         }
-        
+
         return res.status(403).json({ message: 'Forbidden: Administrator access required.' });
 
     } catch (error) {
