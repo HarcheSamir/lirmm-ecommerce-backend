@@ -15,7 +15,6 @@ create_cluster() {
 }
 
 install_istio() {
-    # The PATH is correctly set by the Jenkinsfile, so we can call istioctl directly.
     echo "--- Checking for istioctl in the PATH ---"
     if ! command -v istioctl &> /dev/null
     then
@@ -33,6 +32,19 @@ install_istio() {
     echo "--- Istio installation complete. ---"
 }
 
+install_istio_addons() {
+    echo "--- Installing Istio addons (Kiali, Prometheus, Grafana, etc.) ---"
+    ISTIO_DIR=$(dirname "$(dirname "$(which istioctl)")")
+
+    if [ -d "$ISTIO_DIR/samples/addons" ]; then
+        kubectl apply -f "$ISTIO_DIR/samples/addons"
+        echo "--- Waiting for addons to be ready ---"
+        kubectl wait --for=condition=Available deployment -n istio-system --all --timeout=5m
+    else
+        echo "--- WARNING: Could not find Istio samples/addons directory. Skipping addon installation. ---"
+    fi
+}
+
 setup_namespace() {
     echo "--- Creating and labeling namespace '${APP_NAMESPACE}' for Istio injection ---"
     kubectl create namespace "${APP_NAMESPACE}" || echo "Namespace '${APP_NAMESPACE}' already exists."
@@ -43,6 +55,8 @@ setup_namespace() {
 echo "--- Starting Full Cluster Setup with Istio ---"
 create_cluster
 install_istio
+# THIS IS THE FIX: Call the new function.
+install_istio_addons
 setup_namespace
 echo "---"
 echo "--- SETUP COMPLETE ---"

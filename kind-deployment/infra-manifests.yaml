@@ -139,6 +139,12 @@ spec:
           value: "false"
         - name: ES_JAVA_OPTS
           value: "-Xms512m -Xmx512m"
+        readinessProbe:
+          httpGet:
+            path: /_cluster/health?wait_for_status=yellow&timeout=1s
+            port: 9200
+          initialDelaySeconds: 20 # Give ES time to start up before probing
+          periodSeconds: 10
         volumeMounts:
         - name: es-data
           mountPath: /usr/share/elasticsearch/data
