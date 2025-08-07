@@ -39,7 +39,7 @@ install_istio_addons() {
     if [ -d "$ISTIO_DIR/samples/addons" ]; then
         kubectl apply -f "$ISTIO_DIR/samples/addons"
         echo "--- Waiting for addons to be ready ---"
-        kubectl wait --for=condition=Available deployment -n istio-system --all --timeout=10m
+        kubectl wait --for=condition=Available deployment -n istio-system --all --timeout=10m || echo "--- WARNING: Some addons may not be fully ready ---"
     else
         echo "--- WARNING: Could not find Istio samples/addons directory. Skipping addon installation. ---"
     fi
