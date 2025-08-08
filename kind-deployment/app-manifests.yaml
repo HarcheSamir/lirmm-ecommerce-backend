@@ -40,6 +40,16 @@ spec:
           number: 3001
   - match:
     - uri:
+        exact: /products  
+    rewrite:
+      uri: /             
+    route:
+    - destination:
+        host: product-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3003
+  - match:
+    - uri:
         prefix: /products/
     rewrite:
       uri: /
@@ -78,6 +88,16 @@ spec:
         host: cart-service-svc.lirmm-services.svc.cluster.local
         port:
           number: 3006
+  - match:
+    - uri:
+        exact: /orders
+    rewrite:
+      uri: /  # Assuming your order.routes.js handles GET on '/'
+    route:
+    - destination:
+        host: order-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3007
   - match:
     - uri:
         prefix: /orders/
