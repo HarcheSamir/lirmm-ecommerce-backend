@@ -104,7 +104,7 @@ spec:
     protocol: TCP
     port: 29092
     targetPort: 29092
-    nodePort: 30902
+    nodePort: 30992
   type: NodePort
 ---
 apiVersion: apps/v1
@@ -161,7 +161,8 @@ spec:
   selector:
     component: elasticsearch
   ports:
-  - port: 9200
+  - name: http
+    port: 9200
     targetPort: 9200
     nodePort: 32200
   type: NodePort
