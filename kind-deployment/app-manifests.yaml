@@ -50,16 +50,6 @@ spec:
           number: 3003
   - match:
     - uri:
-        prefix: /categories/
-    rewrite:
-      uri: /categories/
-    route:
-    - destination:
-        host: product-service-svc.lirmm-services.svc.cluster.local
-        port:
-          number: 3003
-  - match:
-    - uri:
         prefix: /images/
     rewrite:
       uri: /
