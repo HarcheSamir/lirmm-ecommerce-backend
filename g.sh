@@ -4,10 +4,14 @@ find . -type f \
   \( \
     -name "docker-compose.yml" -o \
     -name "Jenkinsfile" -o \
+    -name "Jenkinsfile-infrastructure" -o \
+    -name "app.js" -o \
+    -name "index.js" -o \
+    -name "order.controller.js" -o \
+    -name "review.controller.js" -o \
     -name "Dockerfile" -o \
     -path "*/kind-deployment/*" -o \
-    -path "*/api-gateway/*" -o \
-    -path "*/auth-service/*" \
+    -path "*/middlewares/*" \
   \) \
   ! -path "*/node_modules/*" \
   ! -path "*/.git/*" \
