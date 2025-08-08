@@ -353,6 +353,8 @@ spec:
     metadata:
       labels:
         app: search-service
+      annotations:
+        traffic.sidecar.istio.io/excludeOutboundPorts: "9092"
     spec:
       containers:
       - name: search-service
