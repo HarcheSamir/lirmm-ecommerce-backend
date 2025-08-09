@@ -5,11 +5,14 @@ set -e
 CLUSTER_NAME="lirmm-dev-cluster"
 KIND_CONFIG_FILE="./kind-deployment/kind-cluster-config.yaml"
 APP_NAMESPACE="lirmm-services"
+LOCAL_REGISTRY_URL="localhost:5000" # Define the registry URL
 
 # --- Main Functions ---
+
 create_cluster() {
     echo "--- Deleting existing Kind cluster (if any) ---"
     kind delete cluster --name "${CLUSTER_NAME}" || true
+    
     echo "--- Creating new Kind cluster: ${CLUSTER_NAME} ---"
     kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
 }
@@ -22,8 +25,11 @@ install_istio() {
         exit 1
     fi
 
-    echo "--- Installing Istio onto the cluster (demo profile) ---"
-    istioctl install --set profile=demo -y
+    # THIS IS THE FIX:
+    # We instruct istioctl to use our local registry for its images.
+    # The 'hub' tells it where to look for images like 'pilot' and 'proxyv2'.
+    echo "--- Installing Istio onto the cluster (demo profile) using local registry at ${LOCAL_REGISTRY_URL} ---"
+    istioctl install --set profile=demo -y --set hub="${LOCAL_REGISTRY_URL}/istio"
 
     echo "--- Configuring Istio Ingress Gateway Service ---"
     kubectl patch svc istio-ingressgateway -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/ports/1/nodePort", "value":30000}]'
@@ -34,6 +40,7 @@ install_istio() {
 
 install_istio_addons() {
     echo "--- Installing Istio addons (Kiali, Prometheus, Grafana, etc.) ---"
+    # Find the directory where istioctl is, then go up to find the samples
     ISTIO_DIR=$(dirname "$(dirname "$(which istioctl)")")
 
     if [ -d "$ISTIO_DIR/samples/addons" ]; then
@@ -52,10 +59,10 @@ setup_namespace() {
 }
 
 # --- Script Execution ---
+
 echo "--- Starting Full Cluster Setup with Istio ---"
 create_cluster
 install_istio
-# THIS IS THE FIX: Call the new function.
 install_istio_addons
 setup_namespace
 echo "---"
