@@ -1,5 +1,10 @@
 const axios = require('axios');
-const AUTH_SERVICE_URL = 'http://auth-service-svc.lirmm-services.svc.cluster.local:3001';
+
+const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL;
+if (!AUTH_SERVICE_URL) {
+    console.error('FATAL: AUTH_SERVICE_URL environment variable is not defined.');
+    process.exit(1);
+}
 
 const adminOnlyMiddleware = async (req, res, next) => {
     try {

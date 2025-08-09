@@ -1,7 +1,12 @@
 const prisma = require('../../config/prisma');
 const axios = require('axios');
 const { faker } = require('@faker-js/faker');
-const PRODUCT_SERVICE_URL = 'http://product-service-svc.lirmm-services.svc.cluster.local:3003';
+
+const PRODUCT_SERVICE_URL = process.env.PRODUCT_SERVICE_URL;
+if (!PRODUCT_SERVICE_URL) {
+    console.error('FATAL: PRODUCT_SERVICE_URL environment variable is not defined.');
+    process.exit(1);
+}
 
 const createError = (message, statusCode) => {
   const error = new Error(message);

@@ -1,7 +1,12 @@
 const prisma = require('../../config/prisma');
 const { sendMessage } = require('../../kafka/producer');
 const axios = require('axios');
-const ORDER_SERVICE_URL = 'http://order-service-svc.lirmm-services.svc.cluster.local:3007';
+
+const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL;
+if (!ORDER_SERVICE_URL) {
+    console.error('FATAL: ORDER_SERVICE_URL environment variable is not defined.');
+    process.exit(1);
+}
 
 const reviewInclude = {
     user: { select: { id: true, name: true, profileImage: true } },
