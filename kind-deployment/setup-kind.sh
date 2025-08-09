@@ -5,7 +5,8 @@ set -e
 CLUSTER_NAME="lirmm-dev-cluster"
 KIND_CONFIG_FILE="./kind-deployment/kind-cluster-config.yaml"
 APP_NAMESPACE="lirmm-services"
-LOCAL_REGISTRY_URL="localhost:5000" # Define the registry URL
+# THIS IS THE FIX: The cluster will resolve this name via the 'kind' docker network
+REGISTRY_URL_FOR_CLUSTER="local-registry:5000"
 
 # --- Main Functions ---
 
@@ -14,22 +15,20 @@ create_cluster() {
     kind delete cluster --name "${CLUSTER_NAME}" || true
     
     echo "--- Creating new Kind cluster: ${CLUSTER_NAME} ---"
+    echo "--- It will be configured to connect to the registry at '${REGISTRY_URL_FOR_CLUSTER}' ---"
     kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
 }
 
 install_istio() {
     echo "--- Checking for istioctl in the PATH ---"
-    if ! command -v istioctl &> /dev/null
-    then
+    if ! command -v istioctl &> /dev/null; then
         echo "FATAL: istioctl could not be found in the PATH provided by Jenkins."
         exit 1
     fi
 
-    # THIS IS THE FIX:
-    # We instruct istioctl to use our local registry for its images.
-    # The 'hub' tells it where to look for images like 'pilot' and 'proxyv2'.
-    echo "--- Installing Istio onto the cluster (demo profile) using local registry at ${LOCAL_REGISTRY_URL} ---"
-    istioctl install --set profile=demo -y --set hub="${LOCAL_REGISTRY_URL}/istio"
+    # THIS IS THE FIX: Use the container name for the hub URL.
+    echo "--- Installing Istio (demo profile) using registry hub '${REGISTRY_URL_FOR_CLUSTER}/istio' ---"
+    istioctl install --set profile=demo -y --set hub="${REGISTRY_URL_FOR_CLUSTER}/istio"
 
     echo "--- Configuring Istio Ingress Gateway Service ---"
     kubectl patch svc istio-ingressgateway -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/ports/1/nodePort", "value":30000}]'
@@ -39,8 +38,7 @@ install_istio() {
 }
 
 install_istio_addons() {
-    echo "--- Installing Istio addons (Kiali, Prometheus, Grafana, etc.) ---"
-    # Find the directory where istioctl is, then go up to find the samples
+    echo "--- Installing Istio addons ---"
     ISTIO_DIR=$(dirname "$(dirname "$(which istioctl)")")
 
     if [ -d "$ISTIO_DIR/samples/addons" ]; then
@@ -54,7 +52,7 @@ install_istio_addons() {
 
 setup_namespace() {
     echo "--- Creating and labeling namespace '${APP_NAMESPACE}' for Istio injection ---"
-    kubectl create namespace "${APP_NAMESPACE}" || echo "Namespace '${APP_NAMESPACE}' already exists."
+    kubectl create namespace "${APP_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
     kubectl label namespace "${APP_NAMESPACE}" istio-injection=enabled --overwrite
 }
 
