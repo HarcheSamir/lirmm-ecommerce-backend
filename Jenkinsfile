@@ -1,8 +1,10 @@
-// This is the final, correct application pipeline. It restarts ONLY the applications.
+// This is the application pipeline. It now pushes images to the local registry
+// and no longer uses the slow 'kind load' command.
 pipeline {
     agent { label 'wsl' }
 
     environment {
+        LOCAL_REGISTRY      = 'localhost:5000'
         IMAGE_PREFIX        = 'lirmm-ecommerce'
         IMAGE_TAG           = 'latest'
         KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
@@ -11,19 +13,20 @@ pipeline {
     }
 
     stages {
-        stage('Build & Load Application Images') {
+        stage('Build & Push Application Images') {
             steps {
                 script {
-                    echo "--- Building and loading all application service images ---"
+                    echo "--- Building and pushing all application service images to local registry ---"
                     def services = [
                         'api-gateway', 'auth-service', 'product-service', 'image-service',
                         'search-service', 'cart-service', 'order-service', 'review-service'
                     ]
 
                     services.each { service ->
-                        def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
+                        def imageName = "${env.LOCAL_REGISTRY}/${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
+                        echo "--- Processing: ${imageName} ---"
                         sh "docker build -t ${imageName} ./${service}"
-                        sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
+                        sh "docker push ${imageName}"
                     }
                 }
             }
@@ -32,7 +35,7 @@ pipeline {
         stage('Deploy Application') {
             steps {
                 script {
-                    echo "--- Applying ALL application manifests ---"
+                    echo "--- Applying ALL application manifests (pulling images from local registry) ---"
                     sh "kubectl apply -f ${env.APP_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
                     echo "--- Forcing rollout restart of ONLY microservice deployments ---"

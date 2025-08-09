@@ -92,7 +92,7 @@ spec:
     - uri:
         exact: /orders
     rewrite:
-      uri: /  # Assuming your order.routes.js handles GET on '/'
+      uri: /
     route:
     - destination:
         host: order-service-svc.lirmm-services.svc.cluster.local
@@ -127,7 +127,7 @@ spec:
         port:
           number: 3000
 # =================================================================
-# APPLICATION SERVICES
+# APPLICATION SERVICES (POINTING TO LOCAL REGISTRY)
 # =================================================================
 ---
 apiVersion: v1
@@ -162,7 +162,7 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        image: lirmm-ecommerce/api-gateway:latest
+        image: localhost:5000/lirmm-ecommerce/api-gateway:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
@@ -204,7 +204,7 @@ spec:
     spec:
       initContainers:
       - name: auth-db-migrate
-        image: lirmm-ecommerce/auth-service:latest
+        image: localhost:5000/lirmm-ecommerce/auth-service:latest
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma"]
         env:
@@ -212,7 +212,7 @@ spec:
           value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
       containers:
       - name: auth-service
-        image: lirmm-ecommerce/auth-service:latest
+        image: localhost:5000/lirmm-ecommerce/auth-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3001
@@ -260,7 +260,7 @@ spec:
     spec:
       initContainers:
       - name: product-db-migrate
-        image: lirmm-ecommerce/product-service:latest
+        image: localhost:5000/lirmm-ecommerce/product-service:latest
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma"]
         env:
@@ -268,7 +268,7 @@ spec:
           value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
       containers:
       - name: product-service
-        image: lirmm-ecommerce/product-service:latest
+        image: localhost:5000/lirmm-ecommerce/product-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3003
@@ -281,7 +281,6 @@ spec:
           value: "product-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        # --- ADDED FOR K8S ---
         - name: AUTH_SERVICE_URL
           value: "http://auth-service-svc.lirmm-services.svc.cluster.local:3001"
 ---
@@ -317,7 +316,7 @@ spec:
     spec:
       containers:
       - name: image-service
-        image: lirmm-ecommerce/image-service:latest
+        image: localhost:5000/lirmm-ecommerce/image-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3004
@@ -371,7 +370,7 @@ spec:
     spec:
       containers:
       - name: search-service
-        image: lirmm-ecommerce/search-service:latest
+        image: localhost:5000/lirmm-ecommerce/search-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3005
@@ -417,7 +416,7 @@ spec:
     spec:
       containers:
       - name: cart-service
-        image: lirmm-ecommerce/cart-service:latest
+        image: localhost:5000/lirmm-ecommerce/cart-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3006
@@ -463,7 +462,7 @@ spec:
     spec:
       initContainers:
       - name: order-db-migrate
-        image: lirmm-ecommerce/order-service:latest
+        image: localhost:5000/lirmm-ecommerce/order-service:latest
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
@@ -471,7 +470,7 @@ spec:
           value: "postgresql://postgres:postgres@order-db-svc:5432/order_db?schema=public"
       containers:
       - name: order-service
-        image: lirmm-ecommerce/order-service:latest
+        image: localhost:5000/lirmm-ecommerce/order-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3007
@@ -484,7 +483,6 @@ spec:
           value: "order-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        # --- ADDED FOR K8S ---
         - name: AUTH_SERVICE_URL
           value: "http://auth-service-svc.lirmm-services.svc.cluster.local:3001"
         - name: PRODUCT_SERVICE_URL
@@ -522,7 +520,7 @@ spec:
     spec:
       initContainers:
       - name: review-db-migrate
-        image: lirmm-ecommerce/review-service:latest
+        image: localhost:5000/lirmm-ecommerce/review-service:latest
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
@@ -530,7 +528,7 @@ spec:
           value: "postgresql://postgres:postgres@review-db-svc:5432/review_db?schema=public"
       containers:
       - name: review-service
-        image: lirmm-ecommerce/review-service:latest
+        image: localhost:5000/lirmm-ecommerce/review-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3008
@@ -543,7 +541,6 @@ spec:
           value: "review-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        # --- ADDED FOR K8S ---
         - name: AUTH_SERVICE_URL
           value: "http://auth-service-svc.lirmm-services.svc.cluster.local:3001"
         - name: ORDER_SERVICE_URL

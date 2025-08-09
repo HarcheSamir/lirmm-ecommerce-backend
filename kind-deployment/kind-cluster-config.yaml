@@ -1,7 +1,12 @@
-# In kind-cluster-config.yaml
-
+# This content is slightly modified for readability from your original.
+# The critical addition is the 'containerdConfigPatches' section.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+# THIS SECTION IS NEW. IT TELLS KIND TO USE YOUR LOCAL REGISTRY.
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5000"]
+    endpoint = ["http://localhost:5000"]
 nodes:
 - role: control-plane
   kubeadmConfigPatches:
@@ -16,11 +21,9 @@ nodes:
     hostPort: 13000
     protocol: TCP
   # Kafka
-  # --- FIX: Change the containerPort to avoid collision ---
   - containerPort: 30992
     hostPort: 29092
     protocol: TCP
-  # --- END FIX ---
   # Elasticsearch
   - containerPort: 32200
     hostPort: 9200
