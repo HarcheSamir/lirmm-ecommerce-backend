@@ -43,11 +43,11 @@ install_istio() {
     fi
 
     echo "--- Installing Istio onto the cluster (demo profile) ---"
-    # Add explicit timeout and retry logic
-    if ! istioctl install --set profile=demo -y --timeout=600s; then
+    # Simple retry logic without invalid timeout flag
+    if ! istioctl install --set profile=demo -y; then
         echo "--- First Istio install attempt failed, retrying once ---"
         sleep 10
-        istioctl install --set profile=demo -y --timeout=600s
+        istioctl install --set profile=demo -y
     fi
 
     echo "--- Configuring Istio Ingress Gateway Service ---"
