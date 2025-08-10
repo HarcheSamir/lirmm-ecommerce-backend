@@ -14,6 +14,26 @@ create_cluster() {
     kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
 }
 
+wait_for_cluster_ready() {
+    echo "--- Waiting for cluster nodes to be ready ---"
+    
+    # Wait for nodes to be Ready (max 5 minutes)
+    kubectl wait --for=condition=Ready nodes --all --timeout=300s
+    
+    echo "--- Removing any lingering taints from control-plane node ---"
+    # Remove common taints that prevent scheduling
+    kubectl taint nodes --all node.kubernetes.io/not-ready- || true
+    kubectl taint nodes --all node-role.kubernetes.io/control-plane- || true
+    
+    # Double-check node status
+    echo "--- Final node status check ---"
+    kubectl get nodes
+    
+    # Wait a bit more for any pending operations
+    echo "--- Waiting 30 seconds for cluster to fully stabilize ---"
+    sleep 30
+}
+
 install_istio() {
     echo "--- Checking for istioctl in the PATH ---"
     if ! command -v istioctl &> /dev/null
@@ -23,7 +43,12 @@ install_istio() {
     fi
 
     echo "--- Installing Istio onto the cluster (demo profile) ---"
-    istioctl install --set profile=demo -y
+    # Add explicit timeout and retry logic
+    if ! istioctl install --set profile=demo -y --timeout=600s; then
+        echo "--- First Istio install attempt failed, retrying once ---"
+        sleep 10
+        istioctl install --set profile=demo -y --timeout=600s
+    fi
 
     echo "--- Configuring Istio Ingress Gateway Service ---"
     kubectl patch svc istio-ingressgateway -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/ports/1/nodePort", "value":30000}]'
@@ -54,8 +79,8 @@ setup_namespace() {
 # --- Script Execution ---
 echo "--- Starting Full Cluster Setup with Istio ---"
 create_cluster
+wait_for_cluster_ready  # NEW: Wait for cluster to be fully ready
 install_istio
-# THIS IS THE FIX: Call the new function.
 install_istio_addons
 setup_namespace
 echo "---"
