@@ -4,10 +4,44 @@ const { startOfDay } = require('date-fns');
 
 const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL;
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const syncHistoricalData = async (req, res, next) => {
     console.log("Starting historical data backfill...");
     try {
-        // 1. Clear existing analytical data
+        // --- START: MODIFICATION FOR K8S ROBUSTNESS ---
+        // Retry logic to wait for order-service to be available
+        let ordersFetched = false;
+        let attempts = 0;
+        const maxAttempts = 10;
+        let allOrders = [];
+
+        while (!ordersFetched && attempts < maxAttempts) {
+            try {
+                let page = 1;
+                let hasMore = true;
+                console.log(`[Attempt ${attempts + 1}] Fetching paginated orders from order-service...`);
+                while(hasMore) {
+                    const response = await axios.get(`${ORDER_SERVICE_URL}?page=${page}&limit=100`);
+                    const orders = response.data.data;
+                    if (orders && orders.length > 0) {
+                        allOrders.push(...orders);
+                        page++;
+                    } else {
+                        hasMore = false;
+                    }
+                }
+                ordersFetched = true;
+                console.log(`Fetched a total of ${allOrders.length} orders.`);
+            } catch (error) {
+                attempts++;
+                if (attempts >= maxAttempts) throw error;
+                console.warn(`Could not connect to order-service. Retrying in 10 seconds... (${attempts}/${maxAttempts})`);
+                await sleep(10000); // Wait 10 seconds before retrying
+            }
+        }
+        // --- END: MODIFICATION ---
+
         console.log("Clearing existing analytical data...");
         await prisma.$transaction([
             prisma.factOrderItem.deleteMany(),
@@ -15,28 +49,10 @@ const syncHistoricalData = async (req, res, next) => {
             prisma.dailyAggregate.deleteMany(),
         ]);
         console.log("Existing data cleared.");
-
-        // 2. Fetch all orders from order-service
-        let allOrders = [];
-        let page = 1;
-        let hasMore = true;
-        console.log("Fetching paginated orders from order-service...");
-        while(hasMore) {
-            const response = await axios.get(`${ORDER_SERVICE_URL}?page=${page}&limit=100`);
-            const orders = response.data.data;
-            if (orders && orders.length > 0) {
-                allOrders.push(...orders);
-                page++;
-            } else {
-                hasMore = false;
-            }
-        }
-        console.log(`Fetched a total of ${allOrders.length} orders.`);
-
-        // 3. Process and save Fact tables
+        
         console.log("Processing and saving fact tables...");
         for (const order of allOrders) {
-            if (order.status === 'PENDING') continue; // Skip orders not yet finalized
+            if (order.status === 'PENDING') continue;
 
             await prisma.factOrder.create({
                 data: {
@@ -62,7 +78,6 @@ const syncHistoricalData = async (req, res, next) => {
         }
         console.log("Fact tables populated.");
 
-        // 4. Recalculate daily aggregates from the new facts
         console.log("Recalculating daily aggregates...");
         const aggregates = await prisma.factOrder.groupBy({
             by: ['createdAt'],

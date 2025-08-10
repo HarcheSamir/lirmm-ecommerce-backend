@@ -15,10 +15,13 @@ pipeline {
             steps {
                 script {
                     echo "--- Building and loading all application service images ---"
+                    // --- MODIFICATION: ADD NEW SERVICES ---
                     def services = [
                         'api-gateway', 'auth-service', 'product-service', 'image-service',
-                        'search-service', 'cart-service', 'order-service', 'review-service'
+                        'search-service', 'cart-service', 'order-service', 'review-service',
+                        'payment-service', 'stats-service'
                     ]
+                    // --- END MODIFICATION ---
 
                     services.each { service ->
                         def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"

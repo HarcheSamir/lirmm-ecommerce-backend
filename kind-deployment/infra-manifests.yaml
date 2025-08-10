@@ -420,3 +420,56 @@ spec:
   - protocol: TCP
     port: 5432
     targetPort: 5432
+---
+# --- START: NEW STATS DATABASE ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stats-db-deployment
+  namespace: lirmm-services
+  labels:
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stats-db
+  template:
+    metadata:
+      labels:
+        app: stats-db
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - name: stats-db
+        image: postgres:15-alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          value: "postgres"
+        - name: POSTGRES_DB
+          value: "stats_db"
+        volumeMounts:
+        - name: stats-db-data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: stats-db-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stats-db-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: stats-db
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432

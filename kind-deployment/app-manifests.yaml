@@ -92,7 +92,7 @@ spec:
     - uri:
         exact: /orders
     rewrite:
-      uri: /  # Assuming your order.routes.js handles GET on '/'
+      uri: /
     route:
     - destination:
         host: order-service-svc.lirmm-services.svc.cluster.local
@@ -118,6 +118,28 @@ spec:
         host: review-service-svc.lirmm-services.svc.cluster.local
         port:
           number: 3008
+  # --- START: NEW ROUTES ---
+  - match:
+    - uri:
+        prefix: /payments/
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: payment-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3009
+  - match:
+    - uri:
+        prefix: /stats/
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: stats-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3010
+  # --- END: NEW ROUTES ---
   - match:
     - uri:
         exact: /
@@ -171,6 +193,26 @@ spec:
           value: "3000"
         - name: SERVICE_NAME
           value: "api-gateway"
+        # --- START: ADDED/UPDATED FOR K8S CONSISTENCY ---
+        - name: AUTH_SERVICE_URL
+          value: "http://auth-service-svc:3001"
+        - name: PRODUCT_SERVICE_URL
+          value: "http://product-service-svc:3003"
+        - name: IMAGE_SERVICE_URL
+          value: "http://image-service-svc:3004"
+        - name: SEARCH_SERVICE_URL
+          value: "http://search-service-svc:3005"
+        - name: CART_SERVICE_URL
+          value: "http://cart-service-svc:3006"
+        - name: ORDER_SERVICE_URL
+          value: "http://order-service-svc:3007"
+        - name: REVIEW_SERVICE_URL
+          value: "http://review-service-svc:3008"
+        - name: PAYMENT_SERVICE_URL
+          value: "http://payment-service-svc:3009"
+        - name: STATS_SERVICE_URL
+          value: "http://stats-service-svc:3010"
+        # --- END: ADDED/UPDATED FOR K8S CONSISTENCY ---
 ---
 apiVersion: v1
 kind: Service
@@ -281,9 +323,8 @@ spec:
           value: "product-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        # --- ADDED FOR K8S ---
         - name: AUTH_SERVICE_URL
-          value: "http://auth-service-svc.lirmm-services.svc.cluster.local:3001"
+          value: "http://auth-service-svc:3001"
 ---
 apiVersion: v1
 kind: Service
@@ -484,11 +525,14 @@ spec:
           value: "order-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        # --- ADDED FOR K8S ---
         - name: AUTH_SERVICE_URL
-          value: "http://auth-service-svc.lirmm-services.svc.cluster.local:3001"
+          value: "http://auth-service-svc:3001"
         - name: PRODUCT_SERVICE_URL
-          value: "http://product-service-svc.lirmm-services.svc.cluster.local:3003"
+          value: "http://product-service-svc:3003"
+        # --- START: NEW ENV VAR ---
+        - name: PAYMENT_SERVICE_URL
+          value: "http://payment-service-svc:3009"
+        # --- END: NEW ENV VAR ---
 ---
 apiVersion: v1
 kind: Service
@@ -543,8 +587,112 @@ spec:
           value: "review-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-        # --- ADDED FOR K8S ---
         - name: AUTH_SERVICE_URL
-          value: "http://auth-service-svc.lirmm-services.svc.cluster.local:3001"
+          value: "http://auth-service-svc:3001"
         - name: ORDER_SERVICE_URL
-          value: "http://order-service-svc.lirmm-services.svc.cluster.local:3007"
+          value: "http://order-service-svc:3007"
+---
+# --- START: NEW PAYMENT SERVICE ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: payment-service
+  ports:
+  - name: http
+    port: 3009
+    targetPort: 3009
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service-deployment
+  namespace: lirmm-services
+  labels:
+    app-type: microservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+    spec:
+      containers:
+      - name: payment-service
+        image: lirmm-ecommerce/payment-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3009
+        env:
+        - name: PORT
+          value: "3009"
+        - name: SERVICE_NAME
+          value: "payment-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"
+# --- END: NEW PAYMENT SERVICE ---
+---
+# --- START: NEW STATS SERVICE ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stats-service-svc
+  namespace: lirmm-services
+spec:
+  selector:
+    app: stats-service
+  ports:
+  - name: http
+    port: 3010
+    targetPort: 3010
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stats-service-deployment
+  namespace: lirmm-services
+  labels:
+    app-type: microservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stats-service
+  template:
+    metadata:
+      labels:
+        app: stats-service
+    spec:
+      initContainers:
+      - name: stats-db-migrate
+        image: lirmm-ecommerce/stats-service:latest
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@stats-db-svc:5432/stats_db?schema=public"
+      containers:
+      - name: stats-service
+        image: lirmm-ecommerce/stats-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3010
+        env:
+        - name: PORT
+          value: "3010"
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@stats-db-svc:5432/stats_db?schema=public"
+        - name: SERVICE_NAME
+          value: "stats-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"
+        - name: AUTH_SERVICE_URL
+          value: "http://auth-service-svc:3001"
+        - name: ORDER_SERVICE_URL
+          value: "http://order-service-svc:3007"
