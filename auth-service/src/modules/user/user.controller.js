@@ -215,10 +215,22 @@ const activateUser = async (req, res, next) => {
 
 
 
+const getTotalUserCount = async (req, res, next) => {
+  try {
+    const total = await prisma.user.count();
+    res.json({ total });
+  } catch(err) {
+    next(err);
+  }
+};
+
+
+
 module.exports = {
   getAllUsers,
   getUserById,
   updateUser,
   deactivateUser,
-  activateUser
+  activateUser,
+  getTotalUserCount
 };

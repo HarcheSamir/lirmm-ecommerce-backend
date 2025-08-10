@@ -6,8 +6,6 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const app = express();
 
 // --- Configuration ---
-// This map replaces the dynamic Consul lookup. It maps a service name
-// to its static URL defined in the docker-compose.yml environment.
 const serviceUrlMap = {
     'auth-service': process.env.AUTH_SERVICE_URL,
     'product-service': process.env.PRODUCT_SERVICE_URL,
@@ -16,6 +14,8 @@ const serviceUrlMap = {
     'cart-service': process.env.CART_SERVICE_URL,
     'order-service': process.env.ORDER_SERVICE_URL,
     'review-service': process.env.REVIEW_SERVICE_URL,
+    'payment-service': process.env.PAYMENT_SERVICE_URL,
+    'stats-service': process.env.STATS_SERVICE_URL, // <-- ADD THIS LINE
 };
 
 
@@ -32,13 +32,10 @@ app.get('/health', (req, res) => {
 });
 
 
-// --- Proxy Creation Function (Adapted from your original) ---
-// We keep your clean function signature, but change its internal logic.
+// --- Proxy Creation Function ---
 const createProxy = (serviceName, pathRewriteRule = null) => {
     const target = serviceUrlMap[serviceName];
 
-    // If the service URL is not defined in the environment, we log a warning
-    // and return a middleware that sends a 503 Service Unavailable error.
     if (!target) {
         console.warn(`[API Gateway] Target for service '${serviceName}' is not configured in environment variables.`);
         return (req, res, next) => {
@@ -50,7 +47,7 @@ const createProxy = (serviceName, pathRewriteRule = null) => {
         target,
         changeOrigin: true,
         logLevel: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
-        onError: (err, req, res) => { // Using your robust error handler
+        onError: (err, req, res) => {
             console.error(`[API Gateway] Proxy Error for ${serviceName}:`, err.message);
             const statusCode = (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET') ? 503 : 502;
             if (!res.headersSent) {
@@ -59,9 +56,6 @@ const createProxy = (serviceName, pathRewriteRule = null) => {
         },
     };
 
-    // This is the key part: if a special pathRewrite rule is passed
-    // (like for the /images service), we use it. Otherwise, http-proxy-middleware's
-    // default behavior of stripping the base path is what we want.
     if (pathRewriteRule) {
         proxyOptions.pathRewrite = pathRewriteRule;
     }
@@ -70,8 +64,7 @@ const createProxy = (serviceName, pathRewriteRule = null) => {
 };
 
 
-// --- Route Definitions (Your original, clean structure) ---
-// This is much more readable and maintainable.
+// --- Route Definitions ---
 app.use('/auth', createProxy('auth-service'));
 app.use('/products', createProxy('product-service'));
 app.use('/images', createProxy('image-service', { '^/images': '' }));
@@ -79,11 +72,12 @@ app.use('/search', createProxy('search-service'));
 app.use('/carts', createProxy('cart-service'));
 app.use('/orders', createProxy('order-service'));
 app.use('/reviews', createProxy('review-service'));
+app.use('/payments', createProxy('payment-service'));
+app.use('/stats', createProxy('stats-service')); 
 
 
 // --- Final Error Handler ---
 app.use((req, res, next) => {
-    // This will catch any requests that didn't match a proxy route
     res.status(404).json({ message: 'Not Found' });
 });
 

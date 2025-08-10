@@ -124,11 +124,14 @@ services:
         condition: service_started
       review-service:
         condition: service_started
+      payment-service:
+        condition: service_started
+      stats-service: # <-- ADD THIS
+        condition: service_started
     environment:
       PORT: 3000
       SERVICE_NAME: api-gateway
       NODE_ENV: development
-      # --- THIS IS THE CRITICAL FIX ---
       AUTH_SERVICE_URL: http://auth-service-dev:3001
       PRODUCT_SERVICE_URL: http://product-service-dev:3003
       IMAGE_SERVICE_URL: http://image-service-dev:3004
@@ -136,6 +139,8 @@ services:
       CART_SERVICE_URL: http://cart-service-dev:3006
       ORDER_SERVICE_URL: http://order-service-dev:3007
       REVIEW_SERVICE_URL: http://review-service-dev:3008
+      PAYMENT_SERVICE_URL: http://payment-service-dev:3009
+      STATS_SERVICE_URL: http://stats-service-dev:3010 # <-- ADD THIS
     command: npm run dev
     develop:
       watch:
@@ -306,6 +311,7 @@ services:
       KAFKA_BROKERS: kafka-dev:9092
       AUTH_SERVICE_URL: http://auth-service-dev:3001
       PRODUCT_SERVICE_URL: http://product-service-dev:3003
+      PAYMENT_SERVICE_URL: http://payment-service-dev:3009
     command: npm run dev
     develop:
       watch:
@@ -351,6 +357,64 @@ services:
           target: /app/prisma/schema.prisma
         - action: rebuild
           path: ./review-service/package.json
+
+  payment-service:
+    build: ./payment-service
+    container_name: payment-service-dev
+    ports:
+      - "3009:3009"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    environment:
+      PORT: 3009
+      SERVICE_NAME: payment-service
+      NODE_ENV: development
+      KAFKA_BROKERS: kafka-dev:9092
+    command: npm run dev
+    develop:
+      watch:
+        - action: sync
+          path: ./payment-service/src
+          target: /app/src
+        - action: rebuild
+          path: ./payment-service/package.json
+
+  # --- START: NEW STATS SERVICE ---
+  stats-service:
+    build: ./stats-service
+    container_name: stats-service-dev
+    ports:
+      - "3010:3010"
+    depends_on:
+      stats-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    environment:
+      PORT: 3010
+      DATABASE_URL: postgresql://postgres:postgres@stats-db:5432/stats_db?schema=public
+      SERVICE_NAME: stats-service
+      NODE_ENV: development
+      KAFKA_BROKERS: kafka-dev:9092
+      AUTH_SERVICE_URL: http://auth-service-dev:3001
+      ORDER_SERVICE_URL: http://order-service-dev:3007
+    command: npm run dev
+    develop:
+      watch:
+        - action: sync
+          path: ./stats-service/src
+          target: /app/src
+        - action: sync
+          path: ./stats-service/prisma/schema.prisma
+          target: /app/prisma/schema.prisma
+        - action: rebuild
+          path: ./stats-service/package.json
+  # --- END: NEW STATS SERVICE ---
 
   auth-db:
     image: postgres:15-alpine
@@ -427,6 +491,25 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      
+  stats-db:
+    image: postgres:15-alpine
+    container_name: stats-db
+    ports:
+      - "5438:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: stats_db
+    volumes:
+      - stats-db-data:/var/lib/postgresql/data
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d stats_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 networks:
   microservices-network:
@@ -440,3 +523,4 @@ volumes:
   redis-data-dev:
   order-db-data:
   review-db-data:
+  stats-db-data: 

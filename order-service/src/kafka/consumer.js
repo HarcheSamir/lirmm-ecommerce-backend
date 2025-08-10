@@ -5,6 +5,7 @@ const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'kafka:9092').split(',');
 const SERVICE_NAME = process.env.SERVICE_NAME || 'order-service';
 const PRODUCT_TOPIC = 'product_events';
 const AUTH_TOPIC = 'auth_events';
+const PAYMENT_TOPIC = 'payment_events';
 
 const kafka = new Kafka({
     clientId: `${SERVICE_NAME}-consumer`,
@@ -18,7 +19,7 @@ const consumer = kafka.consumer({ groupId: `${SERVICE_NAME}-group` });
 const processMessage = async ({ topic, partition, message }) => {
     try {
         const event = JSON.parse(message.value.toString());
-        const logId = event.payload?.id || 'N/A';
+        const logId = event.payload?.id || event.payload?.orderId || 'N/A';
 
         console.log(`Received event: Type [${event.type}] from [${event.sourceService}] for ID [${logId}] on Topic [${topic}]`);
 
@@ -78,8 +79,36 @@ const processMessage = async ({ topic, partition, message }) => {
                 });
                 console.log(`Upserted denormalized user: ${userData.id}`);
             } else if (event.type === 'USER_DELETED') {
-                await prisma.denormalizedUser.delete({ where: { id: userData.id } }).catch(() => console.log(`User ${userData.id} to delete was not in denormalized table. Ignoring.`));
+                await prisma.denormalizedUser.delete({ where: { id: userData.id } }).catch(() => console.log(`User ${userData.id} todelete was not in denormalized table. Ignoring.`));
                 console.log(`Deleted denormalized user: ${userData.id}`);
+            }
+        }
+
+        if (topic === PAYMENT_TOPIC) {
+            const paymentData = event.payload;
+            if (!paymentData || !paymentData.orderId) {
+                console.warn('Skipping payment event with missing data or orderId.');
+                return;
+            }
+
+            const { orderId, status, transactionId, reason } = paymentData;
+            let dataToUpdate = {};
+
+            if (status === 'PAYMENT_SUCCESS') {
+                dataToUpdate.status = 'PAID';
+                dataToUpdate.paymentTransactionId = transactionId;
+            } else if (status === 'PAYMENT_FAILURE') {
+                dataToUpdate.status = 'FAILED';
+                dataToUpdate.paymentTransactionId = transactionId;
+                dataToUpdate.paymentFailureReason = reason;
+            }
+
+            if (dataToUpdate.status) {
+                await prisma.order.update({
+                    where: { id: orderId },
+                    data: dataToUpdate,
+                });
+                console.log(`Updated order [${orderId}] status to [${dataToUpdate.status}] with transaction details.`);
             }
         }
 
@@ -91,8 +120,8 @@ const processMessage = async ({ topic, partition, message }) => {
 const connectConsumer = async () => {
     try {
         await consumer.connect();
-        await consumer.subscribe({ topics: [PRODUCT_TOPIC, AUTH_TOPIC], fromBeginning: true });
-        console.log(`Kafka consumer subscribed to topics: [${PRODUCT_TOPIC}, ${AUTH_TOPIC}]`);
+        await consumer.subscribe({ topics: [PRODUCT_TOPIC, AUTH_TOPIC, PAYMENT_TOPIC], fromBeginning: true });
+        console.log(`Kafka consumer subscribed to topics: [${PRODUCT_TOPIC}, ${AUTH_TOPIC}, ${PAYMENT_TOPIC}]`);
 
         await consumer.run({ eachMessage: processMessage });
         console.log('Kafka consumer is running...');

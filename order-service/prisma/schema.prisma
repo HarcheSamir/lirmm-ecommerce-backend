@@ -36,17 +36,22 @@ model Order {
   userId          String?
   guestEmail      String?
   guestName       String?
-  phone           String?       // <-- ADD THIS LINE
+  phone           String?
   status          OrderStatus   @default(PENDING)
   paymentMethod   PaymentMethod
   totalAmount     Decimal       @db.Decimal(10, 2)
   shippingAddress Json?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+
+  // --- NEW FIELDS FOR PAYMENT AUDITING ---
+  paymentTransactionId String?       @unique // To ensure one transaction per order
+  paymentFailureReason String?
+
   items           OrderItem[]
   @@index([userId])
   @@index([guestEmail])
-  @@index([phone])             // <-- ADD INDEX FOR PHONE
+  @@index([phone])
 }
 model OrderItem {
   id                 String  @id @default(uuid())

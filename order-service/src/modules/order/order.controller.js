@@ -3,8 +3,14 @@ const axios = require('axios');
 const { faker } = require('@faker-js/faker');
 
 const PRODUCT_SERVICE_URL = process.env.PRODUCT_SERVICE_URL;
+const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL;
+
 if (!PRODUCT_SERVICE_URL) {
     console.error('FATAL: PRODUCT_SERVICE_URL environment variable is not defined.');
+    process.exit(1);
+}
+if (!PAYMENT_SERVICE_URL) {
+    console.error('FATAL: PAYMENT_SERVICE_URL environment variable is not defined.');
     process.exit(1);
 }
 
@@ -80,8 +86,9 @@ const createOrder = async (req, res, next) => {
     return next(createError('Order must contain at least one item.', 400));
   }
 
+  let createdOrderId;
   try {
-    const createdOrderId = await prisma.$transaction(async (tx) => {
+    createdOrderId = await prisma.$transaction(async (tx) => {
       const productIds = items.map(item => item.productId);
       const localProducts = await tx.product.findMany({
         where: { id: { in: productIds } }
@@ -89,7 +96,6 @@ const createOrder = async (req, res, next) => {
       const localProductMap = new Map(localProducts.map(p => [p.id, p]));
 
       let totalAmount = 0;
-      const initialStatus = paymentMethod === 'CASH_ON_DELIVERY' ? 'PENDING' : 'PAID';
       const creationDate = overrideCreatedAt ? new Date(overrideCreatedAt) : undefined;
 
       const order = await tx.order.create({
@@ -137,12 +143,10 @@ const createOrder = async (req, res, next) => {
         });
       }
 
-      const finalTotal = totalAmount;
       await tx.order.update({
         where: { id: order.id },
         data: {
-          totalAmount: finalTotal,
-          status: initialStatus
+          totalAmount: totalAmount,
         }
       });
 
@@ -154,6 +158,19 @@ const createOrder = async (req, res, next) => {
       include: { items: true }
     });
 
+    if (paymentMethod === 'CREDIT_CARD') {
+      try {
+        console.log(`Initiating payment for order ${finalOrder.id}`);
+        axios.post(`${PAYMENT_SERVICE_URL}/process`, {
+          orderId: finalOrder.id,
+          amount: finalOrder.totalAmount,
+          userEmail: email
+        });
+      } catch (paymentError) {
+        console.error(`Failed to initiate payment for order ${finalOrder.id}. The order remains PENDING. Error: ${paymentError.message}`);
+      }
+    }
+
     res.status(201).json(finalOrder);
   } catch (error) {
     const message = error.response?.data?.message || error.message || 'A downstream service failed.';
@@ -161,6 +178,7 @@ const createOrder = async (req, res, next) => {
     return next(createError(message, status));
   }
 };
+
 
 const getOrderById = async (req, res, next) => {
   try {
@@ -317,113 +335,125 @@ const seedGuestOrders = async (req, res, next) => {
         if (products.length === 0) {
             return res.status(404).json({ message: 'No active, in-stock products with variants found to create orders from.' });
         }
-
     } catch (error) {
         return next(new Error(`Failed to fetch products: ${error.message}`));
     }
 
-    const orderCreationPromises = [];
-
     for (let i = 0; i < count; i++) {
         try {
-            const numItems = faker.number.int({ min: 2, max: 4 });
+            const numItems = faker.number.int({ min: 1, max: 4 });
             const orderItems = [];
+            let totalAmount = 0;
+
             const tempStockMap = new Map();
+            products.forEach(p => p.variants.forEach(v => tempStockMap.set(v.id, v.stockQuantity)));
 
             for (let j = 0; j < numItems; j++) {
                 const randomProduct = faker.helpers.arrayElement(products);
-
-                const availableVariants = randomProduct.variants.filter(v => {
-                    const currentStock = tempStockMap.get(v.id) ?? v.stockQuantity;
-                    return currentStock > 0;
-                });
+                const availableVariants = randomProduct.variants.filter(v => (tempStockMap.get(v.id) || 0) > 0);
                 if (availableVariants.length === 0) continue;
 
                 const randomVariant = faker.helpers.arrayElement(availableVariants);
+                if (orderItems.some(item => item.variantId === randomVariant.id)) continue;
 
-                if (!orderItems.some(item => item.variantId === randomVariant.id)) {
-                    const stock = tempStockMap.get(randomVariant.id) ?? randomVariant.stockQuantity;
-                    const maxQuantity = Math.min(stock, 3);
-                    const orderQuantity = faker.number.int({ min: 1, max: maxQuantity });
-
-                    orderItems.push({
-                        productId: randomProduct.id,
-                        variantId: randomVariant.id,
-                        quantity: orderQuantity,
-                        price: randomVariant.price,
-                        attributes: randomVariant.attributes,
-                    });
-
-                    tempStockMap.set(randomVariant.id, stock - orderQuantity);
-                }
+                const stock = tempStockMap.get(randomVariant.id);
+                const quantity = faker.number.int({ min: 1, max: Math.min(stock, 3) });
+                
+                orderItems.push({
+                    productId: randomProduct.id,
+                    variantId: randomVariant.id,
+                    productName: randomProduct.name,
+                    variantAttributes: randomVariant.attributes || {},
+                    sku: randomProduct.sku,
+                    imageUrl: randomProduct.images.find(img => img.isPrimary)?.imageUrl || null,
+                    priceAtTimeOfOrder: randomVariant.price,
+                    quantity: quantity,
+                });
+                totalAmount += (parseFloat(randomVariant.price) * quantity);
+                tempStockMap.set(randomVariant.id, stock - quantity);
             }
 
             if (orderItems.length === 0) {
                 failureCount++;
-                errors.push("Could not find available in-stock products for an order.");
+                errors.push("Could not form a valid order with available stock.");
                 continue;
+            }
+
+            const paymentMethod = faker.helpers.arrayElement(['CREDIT_CARD', 'CASH_ON_DELIVERY']);
+            let status, paymentTransactionId = null, paymentFailureReason = null;
+
+            if (paymentMethod === 'CREDIT_CARD') {
+                const isSuccess = Math.random() < 0.85; // 85% success rate for seeded CC payments
+                paymentTransactionId = `seed_txn_${faker.string.uuid()}`;
+                if (isSuccess) {
+                    status = faker.helpers.arrayElement(['PAID', 'SHIPPED', 'DELIVERED']);
+                } else {
+                    status = 'FAILED';
+                    paymentFailureReason = faker.helpers.arrayElement(['Insufficient funds', 'Card declined by bank', 'Invalid CVV']);
+                }
+            } else { // CASH_ON_DELIVERY
+                status = faker.helpers.arrayElement(['PENDING', 'SHIPPED', 'DELIVERED']);
             }
 
             const oneYearAgo = new Date();
             oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
             const randomPastDate = faker.date.between({ from: oneYearAgo, to: new Date() });
 
-            const mockRequest = {
-                body: {
-                    guestName: faker.person.fullName(),
-                    guestEmail: faker.internet.email(),
-                    phone: faker.phone.number(),
-                    paymentMethod: faker.helpers.arrayElement(['CREDIT_CARD', 'CASH_ON_DELIVERY']),
-                    shippingAddress: {
-                        street: faker.location.streetAddress(),
-                        city: faker.location.city(),
-                        postalCode: faker.location.zipCode(),
-                        country: faker.location.country(),
-                    },
-                    items: orderItems,
-                    overrideCreatedAt: randomPastDate,
-                },
-                user: null
-            };
+            await prisma.$transaction(async (tx) => {
+                const order = await tx.order.create({
+                    data: {
+                        guestName: faker.person.fullName(),
+                        guestEmail: faker.internet.email(),
+                        phone: faker.phone.number(),
+                        paymentMethod,
+                        status,
+                        totalAmount,
+                        paymentTransactionId,
+                        paymentFailureReason,
+                        shippingAddress: {
+                            street: faker.location.streetAddress(),
+                            city: faker.location.city(),
+                            postalCode: faker.location.zipCode(),
+                            country: faker.location.country(),
+                        },
+                        createdAt: randomPastDate,
+                        updatedAt: randomPastDate,
+                        items: { create: orderItems },
+                    }
+                });
 
-            const promise = new Promise((resolve) => {
-                const mockRes = {
-                    status: (code) => ({
-                        json: (data) => {
-                            resolve({ success: code < 300, data });
-                        }
-                    }),
-                };
-                const mockNext = (err) => {
-                    resolve({ success: false, data: { message: err.message } });
-                };
-                createOrder(mockRequest, mockRes, mockNext);
+                for (const item of orderItems) {
+                    const stockAdjustUrl = `${PRODUCT_SERVICE_URL}/stock/adjust/${item.variantId}`;
+                    await axios.post(stockAdjustUrl, {
+                        changeQuantity: -item.quantity,
+                        // --- THIS IS THE FIX ---
+                        type: 'ORDER', 
+                        // --- END OF FIX ---
+                        reason: `Seeded order placement: ${order.id}`,
+                        relatedOrderId: order.id,
+                        timestamp: randomPastDate,
+                    });
+                }
             });
-            orderCreationPromises.push(promise);
+
+            successCount++;
 
         } catch (err) {
             failureCount++;
-            errors.push(`Seeding loop error: ${err.message}`);
+            const errorMessage = err.response?.data?.message || err.message || 'Unknown error during seeding loop';
+            errors.push(`Seeding loop error: ${errorMessage}`);
+            console.error(`Seeding Error:`, err);
         }
     }
-
-    const results = await Promise.all(orderCreationPromises);
-    results.forEach(result => {
-        if (result.success) {
-            successCount++;
-        } else {
-            failureCount++;
-            errors.push(result.data.message || 'Unknown order creation error.');
-        }
-    });
 
     res.status(200).json({
         message: 'Order seeding process completed.',
         seeded: successCount,
         failed: failureCount,
-        errors: errors,
+        errors: errors.slice(0, 10), // Show first 10 errors
     });
 };
+
 
 module.exports = {
   createOrder,

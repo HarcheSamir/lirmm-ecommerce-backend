@@ -1,0 +1,22 @@
+{
+    "name": "stats-service",
+    "version": "1.0.0",
+    "main": "src/index.js",
+    "scripts": {
+      "start": "echo 'Pushing schema...' && npx prisma db push --accept-data-loss && echo 'Starting Service...' && node src/index.js",
+      "dev": "echo 'Pushing schema...' && npx prisma db push --accept-data-loss && echo 'Starting Service with nodemon...' && nodemon src/index.js"
+    },
+    "dependencies": {
+      "@prisma/client": "^5.12.1",
+      "axios": "^1.6.8",
+      "cors": "^2.8.5",
+      "date-fns": "^3.6.0",
+      "express": "^4.19.2",
+      "kafkajs": "^2.2.4",
+      "morgan": "^1.10.0"
+    },
+    "devDependencies": {
+      "nodemon": "^3.1.0",
+      "prisma": "^5.12.1"
+    }
+  }
