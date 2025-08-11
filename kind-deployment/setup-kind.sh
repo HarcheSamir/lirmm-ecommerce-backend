@@ -1,6 +1,6 @@
 #!/bin/bash
 # kind-deployment/setup-kind.sh
-# FINAL, DEFINITIVE, CORRECTED VERSION. KIALI HAS BEEN COMPLETELY REMOVED.
+# FINAL, DEFINITIVE, CORRECTED VERSION. FIXES THE TYPO IN THE GRAFANA SED COMMAND.
 set -e
 
 # --- Configuration ---
@@ -56,7 +56,9 @@ install_istio_addons() {
     echo "--- Modifying addon manifests to use local registry: ${LOCAL_REGISTRY_URL} ---"
     sed -i "s|image: prom/prometheus:v2.53.1|image: ${LOCAL_REGISTRY_URL}/docker.io/prom/prometheus:v2.53.1|g" "${TMP_ADDONS_DIR}/prometheus.yaml"
     sed -i "s|image: jaegertracing/all-in-one:1.59|image: ${LOCAL_REGISTRY_URL}/docker.io/jaegertracing/all-in-one:1.59|g" "${TMP_ADDONS_DIR}/jaeger.yaml"
-    sed -i "s|image: docker.io/grafana/grafana:11.3.1|image: ${LOCAL_REgGISTRY_URL}/docker.io/grafana/grafana:11.3.1|g" "${TMP_ADDONS_DIR}/grafana.yaml"
+    # ============================ THE TYPO FIX ===============================
+    sed -i "s|image: docker.io/grafana/grafana:11.3.1|image: ${LOCAL_REGISTRY_URL}/docker.io/grafana/grafana:11.3.1|g" "${TMP_ADDONS_DIR}/grafana.yaml"
+    # =======================================================================
     sed -i "s|image: grafana/loki:3.2.1|image: ${LOCAL_REGISTRY_URL}/docker.io/grafana/loki:3.2.1|g" "${TMP_ADDONS_DIR}/loki.yaml"
 
     echo "--- Applying modified addon manifests (Kiali is SKIPPED) ---"
