@@ -1,6 +1,5 @@
 // Jenkinsfile-Infrastructure
-// This pipeline sets up a fully offline installation, including Istio and its addons.
-// THIS VERSION CONTAINS THE CRITICAL FIX FOR THE GROOVY SCRIPTING ERROR.
+// FINAL CORRECTED VERSION. This version uses the simplest possible logic to avoid all previous scripting errors.
 pipeline {
     agent { label 'wsl' }
 
@@ -15,42 +14,31 @@ pipeline {
         stage('Push ALL Required Images to Local Registry') {
             steps {
                 script {
-                    def istioVersion = sh(returnStdout: true, script: "grep ISTIO_VERSION= ./kind-deployment/setup-kind.sh | cut -d '\"' -f 2").trim()
-                    echo "--- Using Istio Version from script: ${istioVersion} ---"
-
+                    // This is the complete and canonical list of all external images required.
                     def publicImages = [
                         'postgres:15-alpine',
                         'confluentinc/cp-zookeeper:7.3.2',
                         'confluentinc/cp-kafka:7.3.2',
                         'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
                         'redis:7.2-alpine',
-                        "istio/pilot:${istioVersion}",
-                        "istio/proxyv2:${istioVersion}",
-                        'prom/prometheus:v2.53.1',
-                        'jaegertracing/all-in-one:1.59',
-                        'grafana/grafana:11.3.1',
+                        'docker.io/istio/pilot:1.26.3',
+                        'docker.io/istio/proxyv2:1.26.3',
+                        'docker.io/prom/prometheus:v2.53.1',
+                        'docker.io/jaegertracing/all-in-one:1.59',
+                        'docker.io/grafana/grafana:11.3.1',
                         'quay.io/kiali/kiali:v1.92',
-                        'grafana/loki:3.2.1'
+                        'docker.io/grafana/loki:3.2.1'
                     ]
 
                     echo "--- Pulling, re-tagging, and pushing all required images to the local registry ---"
                     publicImages.each { image ->
-                        // ============================ THE FIX ===============================
-                        // This robust logic replaces the previous buggy one-liner.
-                        def localImage
-                        if (image.startsWith("quay.io/")) {
-                            // Handles quay.io/kiali/kiali -> localhost:5001/quay.io/kiali/kiali
-                            localImage = "${env.LOCAL_REGISTRY}/${image}"
-                        } else {
-                            // Handles all other cases like prom/prometheus and istio/pilot
-                            // by removing any preceding registry like docker.io/
-                            def parts = image.tokenize('/')
-                            def imageNameOnly = parts[-2..-1].join('/')
-                            localImage = "${env.LOCAL_REGISTRY}/${imageNameOnly}"
-                        }
-                        // ====================================================================
+                        // ============================ THE FINAL FIX ===============================
+                        // This logic is dead simple. It just prepends the registry name.
+                        // It cannot fail with an IndexOutOfBoundsException. This was the bug.
+                        def localImage = "${env.LOCAL_REGISTRY}/${image}"
+                        // ========================================================================
                         
-                        echo "Processing: ${image} -> ${localImage}"
+                        echo "Processing: Pulling ${image}, then tagging and pushing as ${localImage}"
                         sh "docker pull ${image}"
                         sh "docker tag ${image} ${localImage}"
                         sh "docker push ${localImage}"
@@ -61,7 +49,7 @@ pipeline {
         stage('Setup Kind, Istio Core, and Addons') {
             steps {
                 script {
-                    echo "--- Running the main setup script to create the cluster and install Istio ---"
+                    echo "--- Running the main setup script ---"
                     withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
                         sh "chmod +x ./kind-deployment/setup-kind.sh"
                         sh "./kind-deployment/setup-kind.sh"
@@ -72,9 +60,7 @@ pipeline {
         stage('Deploy Infrastructure Services') {
             steps {
                 script {
-                    echo "--- Ensuring namespace '${env.APP_NAMESPACE}' exists ---"
-                    sh "kubectl create namespace ${env.APP_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -"
-                    echo "--- Applying ALL infrastructure manifests ---"
+                    echo "--- Applying infrastructure manifests ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
                     echo "--- Waiting for infrastructure to become available ---"
                     sh "kubectl wait --for=condition=Available deployment -l component=zookeeper -n ${env.APP_NAMESPACE} --timeout=5m"
