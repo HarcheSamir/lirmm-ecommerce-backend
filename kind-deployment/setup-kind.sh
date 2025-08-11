@@ -10,6 +10,7 @@ APP_NAMESPACE="lirmm-services"
 create_cluster() {
     echo "--- Deleting existing Kind cluster (if any) ---"
     kind delete cluster --name "${CLUSTER_NAME}" || true
+    
     echo "--- Creating new Kind cluster: ${CLUSTER_NAME} ---"
     kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
 }
@@ -21,25 +22,31 @@ install_istio() {
         echo "FATAL: istioctl could not be found in the PATH provided by Jenkins."
         exit 1
     fi
-
+    
     echo "--- Installing Istio onto the cluster (demo profile) ---"
     istioctl install --set profile=demo -y
-
+    
     echo "--- Configuring Istio Ingress Gateway Service ---"
     kubectl patch svc istio-ingressgateway -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/ports/1/nodePort", "value":30000}]'
     kubectl patch svc istio-ingressgateway -n istio-system -p '{"spec": {"type": "NodePort"}}'
-
+    
     echo "--- Istio installation complete. ---"
 }
 
 install_istio_addons() {
-    echo "--- Installing Istio addons (Kiali, Prometheus, Grafana, etc.) ---"
-    ISTIO_DIR=$(dirname "$(dirname "$(which istioctl)")")
-
+    echo "--- Installing Istio addons (Kiali, Prometheus, Grafana only) ---"
+    ISTIO_DIR="$(dirname "$(dirname "$(which istioctl)")")"
+    
     if [ -d "$ISTIO_DIR/samples/addons" ]; then
-        kubectl apply -f "$ISTIO_DIR/samples/addons"
-        echo "--- Waiting for addons to be ready ---"
-        kubectl wait --for=condition=Available deployment -n istio-system --all --timeout=10m || echo "--- WARNING: Some addons may not be fully ready ---"
+        # Install only specific addons
+        kubectl apply -f "$ISTIO_DIR/samples/addons/kiali.yaml"
+        kubectl apply -f "$ISTIO_DIR/samples/addons/prometheus.yaml"
+        kubectl apply -f "$ISTIO_DIR/samples/addons/grafana.yaml"
+        
+        echo "--- Waiting for selected addons to be ready ---"
+        kubectl wait --for=condition=Available deployment/kiali -n istio-system --timeout=10m || echo "--- WARNING: Kiali may not be fully ready ---"
+        kubectl wait --for=condition=Available deployment/prometheus -n istio-system --timeout=10m || echo "--- WARNING: Prometheus may not be fully ready ---"
+        kubectl wait --for=condition=Available deployment/grafana -n istio-system --timeout=10m || echo "--- WARNING: Grafana may not be fully ready ---"
     else
         echo "--- WARNING: Could not find Istio samples/addons directory. Skipping addon installation. ---"
     fi
@@ -55,9 +62,9 @@ setup_namespace() {
 echo "--- Starting Full Cluster Setup with Istio ---"
 create_cluster
 install_istio
-# THIS IS THE FIX: Call the new function.
 install_istio_addons
 setup_namespace
+
 echo "---"
 echo "--- SETUP COMPLETE ---"
 echo "---"
