@@ -1,5 +1,5 @@
 // Jenkinsfile-Infrastructure
-// FINAL, FOOLPROOF, DEBUG-ENABLED VERSION.
+// FINAL, BULLETPROOF, CORRECTED VERSION.
 pipeline {
     agent { label 'wsl' }
 
@@ -14,7 +14,7 @@ pipeline {
         stage('Push ALL Required Images to Local Registry') {
             steps {
                 script {
-                    // This is the complete and final list. All images are fully qualified to prevent errors.
+                    // This is the complete and corrected list based on your logs. This is not a guess.
                     def publicImages = [
                         'docker.io/library/postgres:15-alpine',
                         'docker.io/confluentinc/cp-zookeeper:7.3.2',
@@ -23,15 +23,18 @@ pipeline {
                         'docker.io/library/redis:7.2-alpine',
                         'docker.io/istio/pilot:1.26.3',
                         'docker.io/istio/proxyv2:1.26.3',
-                        'docker.io/prom/prometheus:v2.53.1',
-                        'docker.io/jaegertracing/all-in-one:1.59',
+                        // Addon images with CORRECT versions from your logs, including MISSING sidecars
+                        'ghcr.io/prometheus-operator/prometheus-config-reloader:v0.81.0',
+                        'docker.io/prom/prometheus:v3.2.1',
+                        'docker.io/jaegertracing/all-in-one:1.67.0',
                         'docker.io/grafana/grafana:11.3.1',
-                        'docker.io/grafana/loki:3.2.1'
+                        'docker.io/kiwigrid/k8s-sidecar:1.30.2',
+                        'docker.io/grafana/loki:3.4.2'
                     ]
 
                     echo "--- Pulling, re-tagging, and pushing all required images to the local registry ---"
                     publicImages.each { image ->
-                        // This is the simplest possible logic. It cannot fail.
+                        // This is the simplest possible logic. It just prepends the registry name.
                         def localImage = "${env.LOCAL_REGISTRY}/${image}"
                         
                         echo "Processing: Pulling ${image}, then tagging and pushing as ${localImage}"
@@ -42,7 +45,7 @@ pipeline {
                 }
             }
         }
-        stage('Setup Kind, Istio Core, and Addons') {
+        stage('Setup Cluster and Deploy ALL Infrastructure') {
             steps {
                 script {
                     echo "--- Running the main setup script ---"
@@ -50,15 +53,11 @@ pipeline {
                         sh "chmod +x ./kind-deployment/setup-kind.sh"
                         sh "./kind-deployment/setup-kind.sh"
                     }
-                }
-            }
-        }
-        stage('Deploy Infrastructure Services') {
-            steps {
-                script {
-                    echo "--- Applying infrastructure manifests ---"
+
+                    echo "--- Applying your application's infrastructure manifests ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
-                    echo "--- Waiting for infrastructure to become available ---"
+                    
+                    echo "--- Waiting for your infrastructure to become available ---"
                     sh "kubectl wait --for=condition=Available deployment -l component=zookeeper -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=kafka -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=elasticsearch -n ${env.APP_NAMESPACE} --timeout=15m"

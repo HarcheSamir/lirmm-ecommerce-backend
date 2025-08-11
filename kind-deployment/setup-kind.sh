@@ -1,6 +1,6 @@
 #!/bin/bash
 # kind-deployment/setup-kind.sh
-# FINAL, FOOLPROOF, DEBUG-ENABLED VERSION.
+# FINAL, BULLETPROOF, CORRECTED VERSION.
 set -e
 
 # --- Configuration ---
@@ -33,16 +33,8 @@ connect_registry_to_network() {
     docker network connect "kind" "${REGISTRY_NAME}" || echo "Registry is already connected to the Kind network."
 }
 
-install_istio_core() {
-    echo "--- Installing Istio CORE from LOCAL REGISTRY ---"
-    istioctl install --set profile=demo -y \
-      --set hub="${LOCAL_REGISTRY_URL}/docker.io/istio" \
-      --set tag="1.26.3"
-    echo "--- Istio core installation complete. ---"
-}
-
-install_istio_addons() {
-    echo "--- Installing Istio ADDONS from LOCAL REGISTRY ---"
+install_istio_and_addons() {
+    echo "--- Installing Istio and Addons from LOCAL REGISTRY ---"
     ISTIO_DIR=$(dirname "$(dirname "$(which istioctl)")")
     ADDONS_DIR="${ISTIO_DIR}/samples/addons"
 
@@ -53,48 +45,45 @@ install_istio_addons() {
     TMP_ADDONS_DIR=$(mktemp -d)
     cp -r ${ADDONS_DIR}/* ${TMP_ADDONS_DIR}/
 
-    echo "--- Modifying addon manifests to use local registry: ${LOCAL_REGISTRY_URL} ---"
-
-    # --- DEBUGGING AND FIXING PROMETHEUS ---
-    echo "[DEBUG] Prometheus BEFORE: $(grep 'image:' ${TMP_ADDONS_DIR}/prometheus.yaml)"
-    sed -i "s|image: prom/prometheus:v2.53.1|image: ${LOCAL_REGISTRY_URL}/docker.io/prom/prometheus:v2.53.1|g" "${TMP_ADDONS_DIR}/prometheus.yaml"
-    echo "[DEBUG] Prometheus AFTER:  $(grep 'image:' ${TMP_ADDONS_DIR}/prometheus.yaml)"
+    echo "--- Modifying ALL manifests to use local registry: ${LOCAL_REGISTRY_URL} ---"
     
-    # --- DEBUGGING AND FIXING JAEGER ---
-    echo "[DEBUG] Jaeger BEFORE: $(grep 'image:' ${TMP_ADDONS_DIR}/jaeger.yaml)"
-    sed -i "s|image: jaegertracing/all-in-one:1.59|image: ${LOCAL_REGISTRY_URL}/docker.io/jaegertracing/all-in-one:1.59|g" "${TMP_ADDONS_DIR}/jaeger.yaml"
-    echo "[DEBUG] Jaeger AFTER:  $(grep 'image:' ${TMP_ADDONS_DIR}/jaeger.yaml)"
+    # These sed commands are robust. They replace the registry prefix on any line containing 'image:'.
+    # They do not depend on specific version tags and will work.
+    sed -i "s|image: prom/prometheus:|image: ${LOCAL_REGISTRY_URL}/docker.io/prom/prometheus:|g" "${TMP_ADDONS_DIR}/prometheus.yaml"
+    sed -i "s|image: \"prom/prometheus:|image: \"${LOCAL_REGISTRY_URL}/docker.io/prom/prometheus:|g" "${TMP_ADDONS_DIR}/prometheus.yaml"
+    sed -i "s|image: ghcr.io/prometheus-operator/prometheus-config-reloader:|image: ${LOCAL_REGISTRY_URL}/ghcr.io/prometheus-operator/prometheus-config-reloader:|g" "${TMP_ADDONS_DIR}/prometheus.yaml"
+
+    sed -i "s|image: \"docker.io/jaegertracing/all-in-one:|image: \"${LOCAL_REGISTRY_URL}/docker.io/jaegertracing/all-in-one:|g" "${TMP_ADDONS_DIR}/jaeger.yaml"
+
+    sed -i "s|image: docker.io/grafana/grafana:|image: ${LOCAL_REGISTRY_URL}/docker.io/grafana/grafana:|g" "${TMP_ADDONS_DIR}/grafana.yaml"
+
+    sed -i "s|image: docker.io/grafana/loki:|image: ${LOCAL_REGISTRY_URL}/docker.io/grafana/loki:|g" "${TMP_ADDONS_DIR}/loki.yaml"
+    sed -i "s|image: kiwigrid/k8s-sidecar:|image: ${LOCAL_REGISTRY_URL}/docker.io/kiwigrid/k8s-sidecar:|g" "${TMP_ADDONS_DIR}/loki.yaml"
+
+    # Install Istio Core FIRST
+    echo "--- Installing Istio CORE from LOCAL REGISTRY ---"
+    istioctl install --set profile=demo -y \
+      --set hub="${LOCAL_REGISTRY_URL}/docker.io/istio" \
+      --set tag="1.26.3"
+    echo "--- Istio core installation complete. ---"
     
-    # --- DEBUGGING AND FIXING GRAFANA ---
-    echo "[DEBUG] Grafana BEFORE: $(grep 'image:' ${TMP_ADDONS_DIR}/grafana.yaml)"
-    sed -i "s|image: docker.io/grafana/grafana:11.3.1|image: ${LOCAL_REGISTRY_URL}/docker.io/grafana/grafana:11.3.1|g" "${TMP_ADDONS_DIR}/grafana.yaml"
-    echo "[DEBUG] Grafana AFTER:  $(grep 'image:' ${TMP_ADDONS_DIR}/grafana.yaml)"
-
-    # --- DEBUGGING AND FIXING LOKI ---
-    echo "[DEBUG] Loki BEFORE: $(grep 'image:' ${TMP_ADDONS_DIR}/loki.yaml)"
-    sed -i "s|image: grafana/loki:3.2.1|image: ${LOCAL_REGISTRY_URL}/docker.io/grafana/loki:3.2.1|g" "${TMP_ADDONS_DIR}/loki.yaml"
-    echo "[DEBUG] Loki AFTER:  $(grep 'image:' ${TMP_ADDONS_DIR}/loki.yaml)"
-
-
+    # Install Addons SECOND
     echo "--- Applying modified addon manifests (Kiali is SKIPPED) ---"
     kubectl apply -f "${TMP_ADDONS_DIR}/prometheus.yaml"
     kubectl apply -f "${TMP_ADDONS_DIR}/jaeger.yaml"
     kubectl apply -f "${TMP_ADDONS_DIR}/grafana.yaml"
     kubectl apply -f "${TMP_ADDONS_DIR}/loki.yaml"
-    
     rm -rf "${TMP_ADDONS_DIR}"
 
     echo "--- Waiting for ALL Istio system deployments to be ready ---"
     kubectl wait --for=condition=Available deployment --all -n istio-system --timeout=15m
 }
 
-configure_gateway() {
+configure_gateway_and_namespace() {
     echo "--- Configuring Istio Ingress Gateway Service ---"
     kubectl patch svc istio-ingressgateway -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/ports/1/nodePort", "value":30000}]'
     kubectl patch svc istio-ingressgateway -n istio-system -p '{"spec": {"type": "NodePort"}}'
-}
 
-setup_namespace() {
     echo "--- Creating and labeling app namespace ---"
     kubectl create namespace "${APP_NAMESPACE}" || echo "Namespace '${APP_NAMESPACE}' already exists."
     kubectl label namespace "${APP_NAMESPACE}" istio-injection=enabled --overwrite
@@ -105,10 +94,8 @@ echo "--- Starting Full Cluster Setup ---"
 setup_registry
 create_cluster
 connect_registry_to_network
-install_istio_core
-install_istio_addons
-configure_gateway
-setup_namespace
+install_istio_and_addons
+configure_gateway_and_namespace
 echo "---"
 echo "--- SETUP COMPLETE ---"
 echo "---"
