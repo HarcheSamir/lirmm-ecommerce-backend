@@ -1,3 +1,4 @@
+// This is the final, correct pipeline. It restores YOUR original, proven logic for pre-loading images.
 pipeline {
     agent { label 'wsl' }
 
@@ -5,7 +6,7 @@ pipeline {
         ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
         APP_NAMESPACE       = 'lirmm-services'
         INFRA_MANIFEST_FILE = './kind-deployment/infra-manifests.yaml'
-        KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
+        KIND_CLUSTER_NAME   = "lirmm-dev-cluster" // Added for kind load command
     }
 
     stages {
@@ -20,42 +21,18 @@ pipeline {
                         'redis:7.2-alpine'
                     ]
 
-                    // ADD: Istio + observability images that take forever to download
-                    def istioImages = [
-                        'docker.io/istio/pilot:1.26.3',
-                        'docker.io/istio/proxyv2:1.26.3',
-                        // Observability stack images
-                        'prom/prometheus:v2.45.0',
-                        'grafana/grafana:10.0.3',
-                        'quay.io/kiali/kiali:v1.73.0'
-                    ]
-
                     echo "--- Pulling heavy public images to the agent ---"
                     publicImages.each { image ->
-                        sh "docker pull ${image}"
-                    }
-
-                    echo "--- Pre-pulling Istio images to avoid slow downloads ---"
-                    istioImages.each { image ->
-                        echo "Pre-pulling: ${image}"
                         sh "docker pull ${image}"
                     }
 
                     echo "--- Running the main setup script to create the cluster and install Istio ---"
                     withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
                         sh "chmod +x ./kind-deployment/setup-kind.sh"
-                        
-                        // CRITICAL: Load Istio images into Kind BEFORE running setup script
-                        echo "--- Loading Istio images into Kind cluster before installation ---"
-                        istioImages.each { image ->
-                            echo "Loading Istio image: ${image}"
-                            sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME}"
-                        }
-                        
                         sh "./kind-deployment/setup-kind.sh"
                     }
 
-                    echo "--- Loading remaining infrastructure images into Kind ---"
+                    echo "--- Loading heavy images into Kind (YOUR ORIGINAL LOGIC) ---"
                     publicImages.each { image ->
                         echo "Loading: ${image}"
                         sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME}"
@@ -72,7 +49,7 @@ pipeline {
                     echo "--- Applying ALL infrastructure manifests ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Waiting for infrastructure to become available ---"
+                    echo "--- Waiting for infrastructure to become available (YOUR ORIGINAL LOGIC) ---"
                     sh "kubectl wait --for=condition=Available deployment -l component=zookeeper -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=kafka -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=elasticsearch -n ${env.APP_NAMESPACE} --timeout=15m"
