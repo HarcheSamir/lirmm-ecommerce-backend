@@ -1,6 +1,6 @@
 #!/bin/bash
 # kind-deployment/setup-kind.sh
-# FINAL, DEFINITIVE, CORRECTED VERSION
+# FINAL, DEFINITIVE, CORRECTED VERSION. KIALI HAS BEEN COMPLETELY REMOVED.
 set -e
 
 # --- Configuration ---
@@ -42,7 +42,7 @@ install_istio_core() {
 }
 
 install_istio_addons() {
-    echo "--- Installing Istio ADDONS from LOCAL REGISTRY ---"
+    echo "--- Installing Istio ADDONS (excluding Kiali) from LOCAL REGISTRY ---"
     ISTIO_DIR=$(dirname "$(dirname "$(which istioctl)")")
     ADDONS_DIR="${ISTIO_DIR}/samples/addons"
 
@@ -56,15 +56,15 @@ install_istio_addons() {
     echo "--- Modifying addon manifests to use local registry: ${LOCAL_REGISTRY_URL} ---"
     sed -i "s|image: prom/prometheus:v2.53.1|image: ${LOCAL_REGISTRY_URL}/docker.io/prom/prometheus:v2.53.1|g" "${TMP_ADDONS_DIR}/prometheus.yaml"
     sed -i "s|image: jaegertracing/all-in-one:1.59|image: ${LOCAL_REGISTRY_URL}/docker.io/jaegertracing/all-in-one:1.59|g" "${TMP_ADDONS_DIR}/jaeger.yaml"
-    sed -i "s|image: docker.io/grafana/grafana:11.3.1|image: ${LOCAL_REGISTRY_URL}/docker.io/grafana/grafana:11.3.1|g" "${TMP_ADDONS_DIR}/grafana.yaml"
-    # ============================ THE FINAL FIX ===============================
-    # This now replaces the original image tag with the new digest-based name.
-    sed -i "s|image: quay.io/kiali/kiali:v1.92|image: ${LOCAL_REGISTRY_URL}/quay.io/kiali/kiali@sha256:29b59683e262175965476d0551068a834d89b142646d1490216fdd5e5c707d72|g" "${TMP_ADDONS_DIR}/kiali.yaml"
-    # ========================================================================
+    sed -i "s|image: docker.io/grafana/grafana:11.3.1|image: ${LOCAL_REgGISTRY_URL}/docker.io/grafana/grafana:11.3.1|g" "${TMP_ADDONS_DIR}/grafana.yaml"
     sed -i "s|image: grafana/loki:3.2.1|image: ${LOCAL_REGISTRY_URL}/docker.io/grafana/loki:3.2.1|g" "${TMP_ADDONS_DIR}/loki.yaml"
 
-    echo "--- Applying modified addon manifests ---"
-    kubectl apply -f "${TMP_ADDONS_DIR}"
+    echo "--- Applying modified addon manifests (Kiali is SKIPPED) ---"
+    kubectl apply -f "${TMP_ADDONS_DIR}/prometheus.yaml"
+    kubectl apply -f "${TMP_ADDONS_DIR}/jaeger.yaml"
+    kubectl apply -f "${TMP_ADDONS_DIR}/grafana.yaml"
+    kubectl apply -f "${TMP_ADDONS_DIR}/loki.yaml"
+    
     rm -rf "${TMP_ADDONS_DIR}"
 
     echo "--- Waiting for ALL Istio system deployments to be ready ---"

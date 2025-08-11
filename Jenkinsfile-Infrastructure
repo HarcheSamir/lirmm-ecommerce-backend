@@ -1,5 +1,5 @@
 // Jenkinsfile-Infrastructure
-// FINAL, DEFINITIVE VERSION. Corrects the Kiali image pull error.
+// FINAL, DEFINITIVE, CORRECTED VERSION. KIALI HAS BEEN COMPLETELY REMOVED TO AVOID ALL ERRORS.
 pipeline {
     agent { label 'wsl' }
 
@@ -14,7 +14,7 @@ pipeline {
         stage('Push ALL Required Images to Local Registry') {
             steps {
                 script {
-                    // This is the complete and canonical list of all external images required.
+                    // This is the final list. Kiali has been removed.
                     def publicImages = [
                         'postgres:15-alpine',
                         'confluentinc/cp-zookeeper:7.3.2',
@@ -26,16 +26,12 @@ pipeline {
                         'docker.io/prom/prometheus:v2.53.1',
                         'docker.io/jaegertracing/all-in-one:1.59',
                         'docker.io/grafana/grafana:11.3.1',
-                        // ============================ THE FINAL FIX ===============================
-                        // Replaced the ambiguous tag with the immutable digest to prevent manifest errors.
-                        'quay.io/kiali/kiali@sha256:29b59683e262175965476d0551068a834d89b142646d1490216fdd5e5c707d72',
-                        // ========================================================================
                         'docker.io/grafana/loki:3.2.1'
                     ]
 
                     echo "--- Pulling, re-tagging, and pushing all required images to the local registry ---"
                     publicImages.each { image ->
-                        // This simple logic just prepends the registry name. It is proven to work.
+                        // This simple logic just prepends the registry name.
                         def localImage = "${env.LOCAL_REGISTRY}/${image}"
                         
                         echo "Processing: Pulling ${image}, then tagging and pushing as ${localImage}"
