@@ -1,5 +1,6 @@
 // Jenkinsfile-Infrastructure
 // This pipeline sets up a fully offline installation, including Istio and its addons.
+// THIS VERSION CONTAINS THE CRITICAL FIX FOR THE GROOVY SCRIPTING ERROR.
 pipeline {
     agent { label 'wsl' }
 
@@ -14,23 +15,17 @@ pipeline {
         stage('Push ALL Required Images to Local Registry') {
             steps {
                 script {
-                    // This stage MUST run before the cluster setup that needs the images.
-                    // Get the Istio version from the setup script to ensure they match.
                     def istioVersion = sh(returnStdout: true, script: "grep ISTIO_VERSION= ./kind-deployment/setup-kind.sh | cut -d '\"' -f 2").trim()
                     echo "--- Using Istio Version from script: ${istioVersion} ---"
 
-                    // This list now includes EVERY SINGLE IMAGE needed for the entire setup.
                     def publicImages = [
-                        // Your Infrastructure
                         'postgres:15-alpine',
                         'confluentinc/cp-zookeeper:7.3.2',
                         'confluentinc/cp-kafka:7.3.2',
                         'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
                         'redis:7.2-alpine',
-                        // Istio Core
                         "istio/pilot:${istioVersion}",
                         "istio/proxyv2:${istioVersion}",
-                        // Istio Addons
                         'prom/prometheus:v2.53.1',
                         'jaegertracing/all-in-one:1.59',
                         'grafana/grafana:11.3.1',
@@ -40,9 +35,20 @@ pipeline {
 
                     echo "--- Pulling, re-tagging, and pushing all required images to the local registry ---"
                     publicImages.each { image ->
-                        // Determine the correct local tag format
-                        def localImage = image.startsWith("quay.io/") ? "${env.LOCAL_REGISTRY}/${image}" :
-                                         "${env.LOCAL_REGISTRY}/${image.tokenize('/')[-2..-1].join('/')}"
+                        // ============================ THE FIX ===============================
+                        // This robust logic replaces the previous buggy one-liner.
+                        def localImage
+                        if (image.startsWith("quay.io/")) {
+                            // Handles quay.io/kiali/kiali -> localhost:5001/quay.io/kiali/kiali
+                            localImage = "${env.LOCAL_REGISTRY}/${image}"
+                        } else {
+                            // Handles all other cases like prom/prometheus and istio/pilot
+                            // by removing any preceding registry like docker.io/
+                            def parts = image.tokenize('/')
+                            def imageNameOnly = parts[-2..-1].join('/')
+                            localImage = "${env.LOCAL_REGISTRY}/${imageNameOnly}"
+                        }
+                        // ====================================================================
                         
                         echo "Processing: ${image} -> ${localImage}"
                         sh "docker pull ${image}"
@@ -56,7 +62,6 @@ pipeline {
             steps {
                 script {
                     echo "--- Running the main setup script to create the cluster and install Istio ---"
-                    echo "This will now use the images pre-loaded into the local registry."
                     withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
                         sh "chmod +x ./kind-deployment/setup-kind.sh"
                         sh "./kind-deployment/setup-kind.sh"
