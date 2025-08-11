@@ -30,6 +30,16 @@ spec:
   http:
   - match:
     - uri:
+        exact: /auth
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: auth-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3001
+  - match:
+    - uri:
         prefix: /auth/
     rewrite:
       uri: /
@@ -60,6 +70,16 @@ spec:
           number: 3003
   - match:
     - uri:
+        exact: /images
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: image-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3004
+  - match:
+    - uri:
         prefix: /images/
     rewrite:
       uri: /
@@ -70,6 +90,16 @@ spec:
           number: 3004
   - match:
     - uri:
+        exact: /search
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: search-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3005
+  - match:
+    - uri:
         prefix: /search/
     rewrite:
       uri: /
@@ -78,6 +108,16 @@ spec:
         host: search-service-svc.lirmm-services.svc.cluster.local
         port:
           number: 3005
+  - match:
+    - uri:
+        exact: /carts
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: cart-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3006
   - match:
     - uri:
         prefix: /carts/
@@ -110,6 +150,16 @@ spec:
           number: 3007
   - match:
     - uri:
+        exact: /reviews
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: review-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3008
+  - match:
+    - uri:
         prefix: /reviews/
     rewrite:
       uri: /
@@ -118,7 +168,16 @@ spec:
         host: review-service-svc.lirmm-services.svc.cluster.local
         port:
           number: 3008
-  # --- START: NEW ROUTES ---
+  - match:
+    - uri:
+        exact: /payments
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: payment-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3009
   - match:
     - uri:
         prefix: /payments/
@@ -131,6 +190,16 @@ spec:
           number: 3009
   - match:
     - uri:
+        exact: /stats
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: stats-service-svc.lirmm-services.svc.cluster.local
+        port:
+          number: 3010
+  - match:
+    - uri:
         prefix: /stats/
     rewrite:
       uri: /
@@ -139,7 +208,6 @@ spec:
         host: stats-service-svc.lirmm-services.svc.cluster.local
         port:
           number: 3010
-  # --- END: NEW ROUTES ---
   - match:
     - uri:
         exact: /
