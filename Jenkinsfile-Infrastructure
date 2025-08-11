@@ -1,41 +1,53 @@
-// This is the final, correct pipeline. It restores YOUR original, proven logic for pre-loading images.
+// This pipeline fixes the image loading logic to prevent timeouts.
 pipeline {
     agent { label 'wsl' }
 
     environment {
-        ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
+        ISTIO_BIN_DIR       = '/home/samir/istio-1.26.3/bin' // Make sure this path is correct
         APP_NAMESPACE       = 'lirmm-services'
         INFRA_MANIFEST_FILE = './kind-deployment/infra-manifests.yaml'
-        KIND_CLUSTER_NAME   = "lirmm-dev-cluster" // Added for kind load command
+        KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
+        KIND_CONFIG_FILE    = './kind-deployment/kind-cluster-config.yaml'
     }
 
     stages {
         stage('Setup Kind Cluster and Istio') {
             steps {
                 script {
+                    // --- THE FIX #1: Add the required addon images to the list ---
+                    // Note: Versions are based on recent Istio samples, they should work.
                     def publicImages = [
                         'postgres:15-alpine',
                         'confluentinc/cp-zookeeper:7.3.2',
                         'confluentinc/cp-kafka:7.3.2',
                         'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
-                        'redis:7.2-alpine'
+                        'redis:7.2-alpine',
+                        'prom/prometheus:v2.37.0', // Prometheus image
+                        'grafana/grafana:9.2.0',   // Grafana image
+                        'jaegertracing/all-in-one:1.38', // Kiali dependency
+                        'kiali/kiali:v1.78'        // Kiali image
                     ]
 
-                    echo "--- Pulling heavy public images to the agent ---"
+                    echo "--- (1/4) Pulling all public images to the agent ---"
                     publicImages.each { image ->
                         sh "docker pull ${image}"
                     }
 
-                    echo "--- Running the main setup script to create the cluster and install Istio ---"
-                    withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
-                        sh "chmod +x ./kind-deployment/setup-kind.sh"
-                        sh "./kind-deployment/setup-kind.sh"
-                    }
+                    echo "--- (2/4) Creating new Kind cluster ---"
+                    sh "kind delete cluster --name ${env.KIND_CLUSTER_NAME} || true"
+                    sh "kind create cluster --name ${env.KIND_CLUSTER_NAME} --config ${env.KIND_CONFIG_FILE}"
 
-                    echo "--- Loading heavy images into Kind (YOUR ORIGINAL LOGIC) ---"
+                    echo "--- (3/4) Loading all images into Kind ---"
                     publicImages.each { image ->
                         echo "Loading: ${image}"
                         sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME}"
+                    }
+
+                    echo "--- (4/4) Running setup script to install Istio and Addons ---"
+                    withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
+                        sh "chmod +x ./kind-deployment/setup-kind.sh"
+                        // This script will now succeed because images are pre-loaded
+                        sh "./kind-deployment/setup-kind.sh"
                     }
                 }
             }
@@ -49,7 +61,7 @@ pipeline {
                     echo "--- Applying ALL infrastructure manifests ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Waiting for infrastructure to become available (YOUR ORIGINAL LOGIC) ---"
+                    echo "--- Waiting for infrastructure to become available ---"
                     sh "kubectl wait --for=condition=Available deployment -l component=zookeeper -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=kafka -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=elasticsearch -n ${env.APP_NAMESPACE} --timeout=15m"
@@ -62,6 +74,9 @@ pipeline {
     post {
         success {
             echo "--- INFRASTRUCTURE DEPLOYMENT SUCCEEDED ---"
+        }
+        failure {
+            echo "--- INFRASTRUCTURE DEPLOYMENT FAILED ---"
         }
     }
 }

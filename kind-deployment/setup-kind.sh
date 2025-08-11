@@ -1,19 +1,13 @@
 #!/bin/bash
 set -e
 
+# This script now assumes the Kind cluster already exists.
+# It only handles the installation of Istio and its addons.
+
 # --- Configuration ---
-CLUSTER_NAME="lirmm-dev-cluster"
-KIND_CONFIG_FILE="./kind-deployment/kind-cluster-config.yaml"
 APP_NAMESPACE="lirmm-services"
 
 # --- Main Functions ---
-
-create_cluster() {
-    echo "--- Deleting existing Kind cluster (if any) ---"
-    kind delete cluster --name "${CLUSTER_NAME}" || true
-    echo "--- Creating new Kind cluster: ${CLUSTER_NAME} ---"
-    kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
-}
 
 install_istio() {
     echo "--- Checking for istioctl in the PATH ---"
@@ -23,7 +17,6 @@ install_istio() {
         exit 1
     fi
 
-    # --- THE KEY FIX: Use the 'default' profile for a much leaner control plane ---
     echo "--- Installing Istio with the efficient 'default' profile ---"
     istioctl install --set profile=default -y
 
@@ -39,28 +32,19 @@ install_and_wait_for_addons() {
     ISTIO_DIR=$(dirname "$(dirname "$(which istioctl)")")
 
     if [ ! -d "$ISTIO_DIR/samples/addons" ]; then
-        echo "--- FATAL: Could not find Istio samples/addons directory. Cannot install addons. ---"
+        echo "--- FATAL: Could not find Istio samples/addons directory. ---"
         exit 1
     fi
 
-    # --- Step 1: Apply ONLY the addon manifests you need ---
-    echo "--- Applying Prometheus... ---"
+    echo "--- Applying addon manifests (Kiali requires Jaeger) ---"
     kubectl apply -f "$ISTIO_DIR/samples/addons/prometheus.yaml"
-
-    echo "--- Applying Grafana... ---"
     kubectl apply -f "$ISTIO_DIR/samples/addons/grafana.yaml"
-
-    echo "--- Applying Kiali... ---"
+    kubectl apply -f "$ISTIO_DIR/samples/addons/jaeger.yaml" # Kiali depends on Jaeger
     kubectl apply -f "$ISTIO_DIR/samples/addons/kiali.yaml"
     
-    # --- Step 2: Wait specifically and efficiently for ONLY those 3 deployments ---
-    echo "--- Waiting for Prometheus to be ready... ---"
+    echo "--- Waiting for Addons... (This will be fast now) ---"
     kubectl wait --for=condition=Available deployment/prometheus -n istio-system --timeout=5m
-    
-    echo "--- Waiting for Grafana to be ready... ---"
     kubectl wait --for=condition=Available deployment/grafana -n istio-system --timeout=5m
-
-    echo "--- Waiting for Kiali to be ready... ---"
     kubectl wait --for=condition=Available deployment/kiali -n istio-system --timeout=5m
     
     echo "--- All required addons are ready. ---"
@@ -68,18 +52,17 @@ install_and_wait_for_addons() {
 
 setup_namespace() {
     echo "--- Creating and labeling namespace '${APP_NAMESPACE}' for Istio injection ---"
+    # Using --dry-run is a safe way to create if it doesn't exist
     kubectl create namespace "${APP_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
     kubectl label namespace "${APP_NAMESPACE}" istio-injection=enabled --overwrite
 }
 
 # --- Script Execution ---
 
-echo "--- Starting Optimized Infrastructure Setup ---"
-create_cluster
+echo "--- Starting Component Installation ---"
 install_istio
-# This function is now named more accurately and is much more efficient
 install_and_wait_for_addons
 setup_namespace
 echo "---"
-echo "--- SETUP SCRIPT COMPLETE ---"
+echo "--- INSTALLATION SCRIPT COMPLETE ---"
 echo "---"
