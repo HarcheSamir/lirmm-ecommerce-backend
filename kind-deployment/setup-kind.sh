@@ -42,13 +42,29 @@ install_istio() {
         exit 1
     fi
 
-    echo "--- Installing Istio onto the cluster (demo profile) ---"
-    # Simple retry logic without invalid timeout flag
-    if ! istioctl install --set profile=demo -y; then
-        echo "--- First Istio install attempt failed, retrying once ---"
-        sleep 10
+    echo "--- Installing Istio onto the cluster (minimal profile + addons) ---"
+    
+    # Install minimal Istio first (much faster)
+    istioctl install --set profile=minimal -y &
+    ISTIO_PID=$!
+    
+    # Monitor progress while installation runs
+    echo "--- Monitoring Istio installation progress ---"
+    while kill -0 $ISTIO_PID 2>/dev/null; do
+        echo ">>> Istio still installing... checking pod status:"
+        kubectl get pods -n istio-system 2>/dev/null || echo "istio-system namespace not created yet"
+        sleep 15
+    done
+    
+    # Wait for the background process and check if it succeeded
+    wait $ISTIO_PID
+    if [ $? -ne 0 ]; then
+        echo "--- Istio installation failed, retrying once ---"
         istioctl install --set profile=demo -y
     fi
+    
+    echo "--- Waiting for Istiod to be fully ready ---"
+    kubectl wait --for=condition=available deployment/istiod -n istio-system --timeout=300s
 
     echo "--- Configuring Istio Ingress Gateway Service ---"
     kubectl patch svc istio-ingressgateway -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/ports/1/nodePort", "value":30000}]'
