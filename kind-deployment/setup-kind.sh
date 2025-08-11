@@ -23,8 +23,12 @@ install_istio() {
         exit 1
     fi
     
-    echo "--- Installing Istio onto the cluster (demo profile) ---"
-    istioctl install --set profile=demo -y
+    echo "--- Installing Istio onto the cluster (demo profile with GCR mirror) ---"
+    # Use Google Container Registry mirror to avoid Docker Hub rate limits
+    istioctl install --set profile=demo --set hub=gcr.io/istio-release -y
+    
+    echo "--- Waiting for Istio control plane to be ready ---"
+    kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=10m
     
     echo "--- Configuring Istio Ingress Gateway Service ---"
     kubectl patch svc istio-ingressgateway -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/ports/1/nodePort", "value":30000}]'
