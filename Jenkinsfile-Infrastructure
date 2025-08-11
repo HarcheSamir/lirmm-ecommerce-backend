@@ -1,5 +1,5 @@
 // Jenkinsfile-Infrastructure
-// This pipeline sets up the infrastructure and populates a local registry, including Istio.
+// This pipeline sets up a fully offline installation, including Istio and its addons.
 pipeline {
     agent { label 'wsl' }
 
@@ -11,7 +11,7 @@ pipeline {
     }
 
     stages {
-        stage('Push Infrastructure and Istio Images to Local Registry') {
+        stage('Push ALL Required Images to Local Registry') {
             steps {
                 script {
                     // This stage MUST run before the cluster setup that needs the images.
@@ -19,23 +19,31 @@ pipeline {
                     def istioVersion = sh(returnStdout: true, script: "grep ISTIO_VERSION= ./kind-deployment/setup-kind.sh | cut -d '\"' -f 2").trim()
                     echo "--- Using Istio Version from script: ${istioVersion} ---"
 
-                    // This list now includes the CORE ISTIO IMAGES.
+                    // This list now includes EVERY SINGLE IMAGE needed for the entire setup.
                     def publicImages = [
-                        // Infrastructure Images
+                        // Your Infrastructure
                         'postgres:15-alpine',
                         'confluentinc/cp-zookeeper:7.3.2',
                         'confluentinc/cp-kafka:7.3.2',
                         'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
                         'redis:7.2-alpine',
-                        // Istio Core Images - This is the critical fix.
+                        // Istio Core
                         "istio/pilot:${istioVersion}",
-                        "istio/proxyv2:${istioVersion}"
+                        "istio/proxyv2:${istioVersion}",
+                        // Istio Addons
+                        'prom/prometheus:v2.53.1',
+                        'jaegertracing/all-in-one:1.59',
+                        'grafana/grafana:11.3.1',
+                        'quay.io/kiali/kiali:v1.92',
+                        'grafana/loki:3.2.1'
                     ]
 
                     echo "--- Pulling, re-tagging, and pushing all required images to the local registry ---"
                     publicImages.each { image ->
-                        // The local tag for Istio images needs a special format: localhost:5001/istio/pilot
-                        def localImage = image.startsWith("istio/") ? "${env.LOCAL_REGISTRY}/${image}" : "${env.LOCAL_REGISTRY}/${image}"
+                        // Determine the correct local tag format
+                        def localImage = image.startsWith("quay.io/") ? "${env.LOCAL_REGISTRY}/${image}" :
+                                         "${env.LOCAL_REGISTRY}/${image.tokenize('/')[-2..-1].join('/')}"
+                        
                         echo "Processing: ${image} -> ${localImage}"
                         sh "docker pull ${image}"
                         sh "docker tag ${image} ${localImage}"
@@ -44,7 +52,7 @@ pipeline {
                 }
             }
         }
-        stage('Setup Kind Cluster and Istio') {
+        stage('Setup Kind, Istio Core, and Addons') {
             steps {
                 script {
                     echo "--- Running the main setup script to create the cluster and install Istio ---"

@@ -8,7 +8,6 @@ KIND_CONFIG_FILE="./kind-deployment/kind-cluster-config.yaml"
 APP_NAMESPACE="lirmm-services"
 REGISTRY_NAME='kind-registry'
 REGISTRY_PORT='5001'
-# !!! IMPORTANT: This version is now correct based on your output !!!
 ISTIO_VERSION="1.26.3"
 
 # --- Main Functions ---
@@ -34,36 +33,51 @@ connect_registry_to_network() {
     docker network connect "kind" "${REGISTRY_NAME}" || echo "Registry is already connected to the Kind network."
 }
 
-install_istio() {
-    echo "--- Checking for istioctl in the PATH ---"
-    if ! command -v istioctl &> /dev/null; then
-        echo "FATAL: istioctl could not be found in the PATH."
-        exit 1
-    fi
-
-    echo "--- Installing Istio from LOCAL REGISTRY to prevent network errors ---"
-    # This now tells istioctl to use our local registry instead of the public one.
+install_istio_core() {
+    echo "--- Installing Istio CORE from LOCAL REGISTRY ---"
     istioctl install --set profile=demo -y \
       --set hub="localhost:5001/istio" \
       --set tag="${ISTIO_VERSION}"
-
-    echo "--- Configuring Istio Ingress Gateway Service to use NodePort ---"
-    kubectl patch svc istio-ingressgateway -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/ports/1/nodePort", "value":30000}]'
-    kubectl patch svc istio-ingressgateway -n istio-system -p '{"spec": {"type": "NodePort"}}'
-    echo "--- Istio installation complete. ---"
+    echo "--- Istio core installation complete. ---"
 }
 
 install_istio_addons() {
-    echo "--- Installing Istio addons (Kiali, Prometheus, Grafana, etc.) ---"
+    echo "--- Installing Istio ADDONS from LOCAL REGISTRY ---"
     ISTIO_DIR=$(dirname "$(dirname "$(which istioctl)")")
+    ADDONS_DIR="${ISTIO_DIR}/samples/addons"
+    LOCAL_REGISTRY_URL="localhost:5001"
 
-    if [ -d "$ISTIO_DIR/samples/addons" ]; then
-        kubectl apply -f "$ISTIO_DIR/samples/addons"
-        echo "--- Waiting for addons to be ready ---"
-        kubectl wait --for=condition=Available deployment -n istio-system --all --timeout=12m || echo "--- WARNING: Some addons may not be fully ready, which can be okay. ---"
-    else
-        echo "--- WARNING: Could not find Istio samples/addons directory. Skipping addon installation. ---"
+    if [ ! -d "$ADDONS_DIR" ]; then
+        echo "--- FATAL: Could not find Istio samples/addons directory. ---"
+        exit 1
     fi
+
+    # Create a temporary directory for the modified addon manifests
+    TMP_ADDONS_DIR=$(mktemp -d)
+    cp -r ${ADDONS_DIR}/* ${TMP_ADDONS_DIR}/
+
+    echo "--- Modifying addon manifests to use local registry: ${LOCAL_REGISTRY_URL} ---"
+    # This is the critical step to make the addons use the local registry.
+    sed -i "s|image: prom/prometheus.*|image: ${LOCAL_REGISTRY_URL}/prom/prometheus:v2.53.1|g" "${TMP_ADDONS_DIR}/prometheus.yaml"
+    sed -i "s|image: jaegertracing/all-in-one.*|image: ${LOCAL_REGISTRY_URL}/jaegertracing/all-in-one:1.59|g" "${TMP_ADDONS_DIR}/jaeger.yaml"
+    sed -i "s|image: docker.io/grafana/grafana.*|image: ${LOCAL_REGISTRY_URL}/grafana/grafana:11.3.1|g" "${TMP_ADDONS_DIR}/grafana.yaml"
+    sed -i "s|image: quay.io/kiali/kiali.*|image: ${LOCAL_REGISTRY_URL}/quay.io/kiali/kiali:v1.92|g" "${TMP_ADDONS_DIR}/kiali.yaml"
+    sed -i "s|image: grafana/loki.*|image: ${LOCAL_REGISTRY_URL}/grafana/loki:3.2.1|g" "${TMP_ADDONS_DIR}/loki.yaml"
+
+    echo "--- Applying modified addon manifests ---"
+    kubectl apply -f "${TMP_ADDONS_DIR}"
+
+    # Clean up the temporary directory
+    rm -rf "${TMP_ADDONS_DIR}"
+
+    echo "--- Waiting for ALL Istio system deployments (core and addons) to be ready ---"
+    kubectl wait --for=condition=Available deployment --all -n istio-system --timeout=15m
+}
+
+configure_gateway() {
+    echo "--- Configuring Istio Ingress Gateway Service to use NodePort ---"
+    kubectl patch svc istio-ingressgateway -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/ports/1/nodePort", "value":30000}]'
+    kubectl patch svc istio-ingressgateway -n istio-system -p '{"spec": {"type": "NodePort"}}'
 }
 
 setup_namespace() {
@@ -77,8 +91,9 @@ echo "--- Starting Full Cluster Setup ---"
 setup_registry
 create_cluster
 connect_registry_to_network
-install_istio
+install_istio_core
 install_istio_addons
+configure_gateway
 setup_namespace
 echo "---"
 echo "--- SETUP COMPLETE ---"
