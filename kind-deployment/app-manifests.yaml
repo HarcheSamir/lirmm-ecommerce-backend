@@ -1,3 +1,4 @@
+# kind-deployment/app-manifests.yaml
 # =================================================================
 # ISTIO GATEWAY & VIRTUAL SERVICE
 # =================================================================
@@ -252,7 +253,7 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        image: lirmm-ecommerce/api-gateway:latest
+        image: localhost:5001/lirmm-ecommerce/api-gateway:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
@@ -261,7 +262,6 @@ spec:
           value: "3000"
         - name: SERVICE_NAME
           value: "api-gateway"
-        # --- START: ADDED/UPDATED FOR K8S CONSISTENCY ---
         - name: AUTH_SERVICE_URL
           value: "http://auth-service-svc:3001"
         - name: PRODUCT_SERVICE_URL
@@ -280,7 +280,6 @@ spec:
           value: "http://payment-service-svc:3009"
         - name: STATS_SERVICE_URL
           value: "http://stats-service-svc:3010"
-        # --- END: ADDED/UPDATED FOR K8S CONSISTENCY ---
 ---
 apiVersion: v1
 kind: Service
@@ -314,7 +313,7 @@ spec:
     spec:
       initContainers:
       - name: auth-db-migrate
-        image: lirmm-ecommerce/auth-service:latest
+        image: localhost:5001/lirmm-ecommerce/auth-service:latest
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma"]
         env:
@@ -322,7 +321,7 @@ spec:
           value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
       containers:
       - name: auth-service
-        image: lirmm-ecommerce/auth-service:latest
+        image: localhost:5001/lirmm-ecommerce/auth-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3001
@@ -370,7 +369,7 @@ spec:
     spec:
       initContainers:
       - name: product-db-migrate
-        image: lirmm-ecommerce/product-service:latest
+        image: localhost:5001/lirmm-ecommerce/product-service:latest
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma"]
         env:
@@ -378,7 +377,7 @@ spec:
           value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
       containers:
       - name: product-service
-        image: lirmm-ecommerce/product-service:latest
+        image: localhost:5001/lirmm-ecommerce/product-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3003
@@ -426,7 +425,7 @@ spec:
     spec:
       containers:
       - name: image-service
-        image: lirmm-ecommerce/image-service:latest
+        image: localhost:5001/lirmm-ecommerce/image-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3004
@@ -480,7 +479,7 @@ spec:
     spec:
       containers:
       - name: search-service
-        image: lirmm-ecommerce/search-service:latest
+        image: localhost:5001/lirmm-ecommerce/search-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3005
@@ -526,7 +525,7 @@ spec:
     spec:
       containers:
       - name: cart-service
-        image: lirmm-ecommerce/cart-service:latest
+        image: localhost:5001/lirmm-ecommerce/cart-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3006
@@ -572,7 +571,7 @@ spec:
     spec:
       initContainers:
       - name: order-db-migrate
-        image: lirmm-ecommerce/order-service:latest
+        image: localhost:5001/lirmm-ecommerce/order-service:latest
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
@@ -580,7 +579,7 @@ spec:
           value: "postgresql://postgres:postgres@order-db-svc:5432/order_db?schema=public"
       containers:
       - name: order-service
-        image: lirmm-ecommerce/order-service:latest
+        image: localhost:5001/lirmm-ecommerce/order-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3007
@@ -597,10 +596,8 @@ spec:
           value: "http://auth-service-svc:3001"
         - name: PRODUCT_SERVICE_URL
           value: "http://product-service-svc:3003"
-        # --- START: NEW ENV VAR ---
         - name: PAYMENT_SERVICE_URL
           value: "http://payment-service-svc:3009"
-        # --- END: NEW ENV VAR ---
 ---
 apiVersion: v1
 kind: Service
@@ -634,7 +631,7 @@ spec:
     spec:
       initContainers:
       - name: review-db-migrate
-        image: lirmm-ecommerce/review-service:latest
+        image: localhost:5001/lirmm-ecommerce/review-service:latest
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
@@ -642,7 +639,7 @@ spec:
           value: "postgresql://postgres:postgres@review-db-svc:5432/review_db?schema=public"
       containers:
       - name: review-service
-        image: lirmm-ecommerce/review-service:latest
+        image: localhost:5001/lirmm-ecommerce/review-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3008
@@ -660,7 +657,6 @@ spec:
         - name: ORDER_SERVICE_URL
           value: "http://order-service-svc:3007"
 ---
-# --- START: NEW PAYMENT SERVICE ---
 apiVersion: v1
 kind: Service
 metadata:
@@ -693,7 +689,7 @@ spec:
     spec:
       containers:
       - name: payment-service
-        image: lirmm-ecommerce/payment-service:latest
+        image: localhost:5001/lirmm-ecommerce/payment-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3009
@@ -704,9 +700,7 @@ spec:
           value: "payment-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
-# --- END: NEW PAYMENT SERVICE ---
 ---
-# --- START: NEW STATS SERVICE ---
 apiVersion: v1
 kind: Service
 metadata:
@@ -739,7 +733,7 @@ spec:
     spec:
       initContainers:
       - name: stats-db-migrate
-        image: lirmm-ecommerce/stats-service:latest
+        image: localhost:5001/lirmm-ecommerce/stats-service:latest
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
@@ -747,7 +741,7 @@ spec:
           value: "postgresql://postgres:postgres@stats-db-svc:5432/stats_db?schema=public"
       containers:
       - name: stats-service
-        image: lirmm-ecommerce/stats-service:latest
+        image: localhost:5001/lirmm-ecommerce/stats-service:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3010

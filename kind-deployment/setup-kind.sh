@@ -1,17 +1,33 @@
 #!/bin/bash
+# kind-deployment/setup-kind.sh
 set -e
 
 # --- Configuration ---
 CLUSTER_NAME="lirmm-dev-cluster"
 KIND_CONFIG_FILE="./kind-deployment/kind-cluster-config.yaml"
 APP_NAMESPACE="lirmm-services"
+REGISTRY_SETUP_SCRIPT="./kind-deployment/setup-registry.sh"
+REGISTRY_NAME="kind-registry"
 
 # --- Main Functions ---
+setup_registry() {
+    echo "--- Setting up local registry ---"
+    chmod +x "${REGISTRY_SETUP_SCRIPT}"
+    "${REGISTRY_SETUP_SCRIPT}"
+}
+
 create_cluster() {
     echo "--- Deleting existing Kind cluster (if any) ---"
     kind delete cluster --name "${CLUSTER_NAME}" || true
     echo "--- Creating new Kind cluster: ${CLUSTER_NAME} ---"
     kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
+}
+
+connect_registry_to_cluster() {
+    echo "--- Connecting the local registry to the Kind network ---"
+    # The registry and the kind nodes need to be in the same docker network
+    # to communicate.
+    docker network connect "kind" "${REGISTRY_NAME}" || echo "Registry already connected to Kind network."
 }
 
 install_istio() {
@@ -34,6 +50,7 @@ install_istio() {
 
 install_istio_addons() {
     echo "--- Installing Istio addons (Kiali, Prometheus, Grafana, etc.) ---"
+    # Find the istio installation directory to locate the addons
     ISTIO_DIR=$(dirname "$(dirname "$(which istioctl)")")
 
     if [ -d "$ISTIO_DIR/samples/addons" ]; then
@@ -53,9 +70,10 @@ setup_namespace() {
 
 # --- Script Execution ---
 echo "--- Starting Full Cluster Setup with Istio ---"
+setup_registry
 create_cluster
+connect_registry_to_cluster
 install_istio
-# THIS IS THE FIX: Call the new function.
 install_istio_addons
 setup_namespace
 echo "---"

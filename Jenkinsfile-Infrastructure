@@ -1,18 +1,31 @@
-// This is the final, correct pipeline. It restores YOUR original, proven logic for pre-loading images.
+// Jenkinsfile-Infrastructure
+// This pipeline sets up the infrastructure and populates a local registry.
 pipeline {
     agent { label 'wsl' }
 
     environment {
         ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
-        APP_NAMESPACE       = 'lirmm-services'
-        INFRA_MANIFEST_FILE = './kind-deployment/infra-manifests.yaml'
-        KIND_CLUSTER_NAME   = "lirmm-dev-cluster" // Added for kind load command
+        APP_NAMESPACE         = 'lirmm-services'
+        INFRA_MANIFEST_FILE   = './kind-deployment/infra-manifests.yaml'
+        LOCAL_REGISTRY        = 'localhost:5001'
     }
 
     stages {
-        stage('Setup Kind Cluster and Istio') {
+        stage('Setup Kind, Registry, and Istio') {
             steps {
                 script {
+                    echo "--- Running the main setup script to create the cluster and install Istio ---"
+                    withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
+                        sh "chmod +x ./kind-deployment/setup-kind.sh"
+                        sh "./kind-deployment/setup-kind.sh"
+                    }
+                }
+            }
+        }
+        stage('Push Infrastructure Images to Local Registry') {
+            steps {
+                script {
+                    // These images are required by infra-manifests.yaml
                     def publicImages = [
                         'postgres:15-alpine',
                         'confluentinc/cp-zookeeper:7.3.2',
@@ -21,21 +34,13 @@ pipeline {
                         'redis:7.2-alpine'
                     ]
 
-                    echo "--- Pulling heavy public images to the agent ---"
+                    echo "--- Pulling, re-tagging, and pushing public images to local registry ---"
                     publicImages.each { image ->
+                        def localImage = "${env.LOCAL_REGISTRY}/${image}"
+                        echo "Processing: ${image}"
                         sh "docker pull ${image}"
-                    }
-
-                    echo "--- Running the main setup script to create the cluster and install Istio ---"
-                    withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
-                        sh "chmod +x ./kind-deployment/setup-kind.sh"
-                        sh "./kind-deployment/setup-kind.sh"
-                    }
-
-                    echo "--- Loading heavy images into Kind (YOUR ORIGINAL LOGIC) ---"
-                    publicImages.each { image ->
-                        echo "Loading: ${image}"
-                        sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME}"
+                        sh "docker tag ${image} ${localImage}"
+                        sh "docker push ${localImage}"
                     }
                 }
             }
@@ -49,7 +54,7 @@ pipeline {
                     echo "--- Applying ALL infrastructure manifests ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Waiting for infrastructure to become available (YOUR ORIGINAL LOGIC) ---"
+                    echo "--- Waiting for infrastructure to become available ---"
                     sh "kubectl wait --for=condition=Available deployment -l component=zookeeper -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=kafka -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=elasticsearch -n ${env.APP_NAMESPACE} --timeout=15m"
@@ -62,6 +67,9 @@ pipeline {
     post {
         success {
             echo "--- INFRASTRUCTURE DEPLOYMENT SUCCEEDED ---"
+        }
+        failure {
+            echo "--- INFRASTRUCTURE DEPLOYMENT FAILED ---"
         }
     }
 }
