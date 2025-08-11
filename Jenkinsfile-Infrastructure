@@ -1,5 +1,5 @@
 // Jenkinsfile-Infrastructure
-// FINAL, BULLETPROOF, CORRECTED VERSION.
+// FINAL, BULLETPROOF, RESILIENT VERSION. Adds a retry block to overcome network flakes.
 pipeline {
     agent { label 'wsl' }
 
@@ -13,36 +13,39 @@ pipeline {
     stages {
         stage('Push ALL Required Images to Local Registry') {
             steps {
-                script {
-                    // This is the complete and corrected list based on your logs. This is not a guess.
-                    def publicImages = [
-                        'docker.io/library/postgres:15-alpine',
-                        'docker.io/confluentinc/cp-zookeeper:7.3.2',
-                        'docker.io/confluentinc/cp-kafka:7.3.2',
-                        'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
-                        'docker.io/library/redis:7.2-alpine',
-                        'docker.io/istio/pilot:1.26.3',
-                        'docker.io/istio/proxyv2:1.26.3',
-                        // Addon images with CORRECT versions from your logs, including MISSING sidecars
-                        'ghcr.io/prometheus-operator/prometheus-config-reloader:v0.81.0',
-                        'docker.io/prom/prometheus:v3.2.1',
-                        'docker.io/jaegertracing/all-in-one:1.67.0',
-                        'docker.io/grafana/grafana:11.3.1',
-                        'docker.io/kiwigrid/k8s-sidecar:1.30.2',
-                        'docker.io/grafana/loki:3.4.2'
-                    ]
+                // ============================ THE FINAL FIX ===============================
+                // This retry block will attempt the entire stage up to 3 times if it fails.
+                // This makes the pipeline resilient to temporary network errors like "EOF".
+                retry(3) {
+                    script {
+                        def publicImages = [
+                            'docker.io/library/postgres:15-alpine',
+                            'docker.io/confluentinc/cp-zookeeper:7.3.2',
+                            'docker.io/confluentinc/cp-kafka:7.3.2',
+                            'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
+                            'docker.io/library/redis:7.2-alpine',
+                            'docker.io/istio/pilot:1.26.3',
+                            'docker.io/istio/proxyv2:1.26.3',
+                            'ghcr.io/prometheus-operator/prometheus-config-reloader:v0.81.0',
+                            'docker.io/prom/prometheus:v3.2.1',
+                            'docker.io/jaegertracing/all-in-one:1.67.0',
+                            'docker.io/grafana/grafana:11.3.1',
+                            'docker.io/kiwigrid/k8s-sidecar:1.30.2',
+                            'docker.io/grafana/loki:3.4.2'
+                        ]
 
-                    echo "--- Pulling, re-tagging, and pushing all required images to the local registry ---"
-                    publicImages.each { image ->
-                        // This is the simplest possible logic. It just prepends the registry name.
-                        def localImage = "${env.LOCAL_REGISTRY}/${image}"
-                        
-                        echo "Processing: Pulling ${image}, then tagging and pushing as ${localImage}"
-                        sh "docker pull ${image}"
-                        sh "docker tag ${image} ${localImage}"
-                        sh "docker push ${localImage}"
+                        echo "--- Pulling, re-tagging, and pushing all required images to the local registry ---"
+                        publicImages.each { image ->
+                            def localImage = "${env.LOCAL_REGISTRY}/${image}"
+                            
+                            echo "Processing: Pulling ${image}, then tagging and pushing as ${localImage}"
+                            sh "docker pull ${image}"
+                            sh "docker tag ${image} ${localImage}"
+                            sh "docker push ${localImage}"
+                        }
                     }
                 }
+                // ========================================================================
             }
         }
         stage('Setup Cluster and Deploy ALL Infrastructure') {
