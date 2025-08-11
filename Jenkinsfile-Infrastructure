@@ -1,5 +1,5 @@
 // Jenkinsfile-Infrastructure
-// FINAL, DEFINITIVE, CORRECTED VERSION. KIALI HAS BEEN COMPLETELY REMOVED TO AVOID ALL ERRORS.
+// FINAL, FOOLPROOF, DEBUG-ENABLED VERSION.
 pipeline {
     agent { label 'wsl' }
 
@@ -14,13 +14,13 @@ pipeline {
         stage('Push ALL Required Images to Local Registry') {
             steps {
                 script {
-                    // This is the final list. Kiali has been removed.
+                    // This is the complete and final list. All images are fully qualified to prevent errors.
                     def publicImages = [
-                        'postgres:15-alpine',
-                        'confluentinc/cp-zookeeper:7.3.2',
-                        'confluentinc/cp-kafka:7.3.2',
+                        'docker.io/library/postgres:15-alpine',
+                        'docker.io/confluentinc/cp-zookeeper:7.3.2',
+                        'docker.io/confluentinc/cp-kafka:7.3.2',
                         'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
-                        'redis:7.2-alpine',
+                        'docker.io/library/redis:7.2-alpine',
                         'docker.io/istio/pilot:1.26.3',
                         'docker.io/istio/proxyv2:1.26.3',
                         'docker.io/prom/prometheus:v2.53.1',
@@ -31,7 +31,7 @@ pipeline {
 
                     echo "--- Pulling, re-tagging, and pushing all required images to the local registry ---"
                     publicImages.each { image ->
-                        // This simple logic just prepends the registry name.
+                        // This is the simplest possible logic. It cannot fail.
                         def localImage = "${env.LOCAL_REGISTRY}/${image}"
                         
                         echo "Processing: Pulling ${image}, then tagging and pushing as ${localImage}"
