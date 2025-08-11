@@ -44,11 +44,19 @@ pipeline {
                     echo "--- Running the main setup script to create the cluster and install Istio ---"
                     withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
                         sh "chmod +x ./kind-deployment/setup-kind.sh"
+                        
+                        // CRITICAL: Load Istio images into Kind BEFORE running setup script
+                        echo "--- Loading Istio images into Kind cluster before installation ---"
+                        istioImages.each { image ->
+                            echo "Loading Istio image: ${image}"
+                            sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME}"
+                        }
+                        
                         sh "./kind-deployment/setup-kind.sh"
                     }
 
-                    echo "--- Loading heavy images into Kind ---"
-                    (publicImages + istioImages).each { image ->
+                    echo "--- Loading remaining infrastructure images into Kind ---"
+                    publicImages.each { image ->
                         echo "Loading: ${image}"
                         sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME}"
                     }
