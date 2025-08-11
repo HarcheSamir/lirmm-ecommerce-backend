@@ -1,5 +1,5 @@
 // Jenkinsfile-Infrastructure
-// FINAL CORRECTED VERSION. This version uses the simplest possible logic to avoid all previous scripting errors.
+// FINAL, DEFINITIVE VERSION. Corrects the Kiali image pull error.
 pipeline {
     agent { label 'wsl' }
 
@@ -26,17 +26,17 @@ pipeline {
                         'docker.io/prom/prometheus:v2.53.1',
                         'docker.io/jaegertracing/all-in-one:1.59',
                         'docker.io/grafana/grafana:11.3.1',
-                        'quay.io/kiali/kiali:v1.92',
+                        // ============================ THE FINAL FIX ===============================
+                        // Replaced the ambiguous tag with the immutable digest to prevent manifest errors.
+                        'quay.io/kiali/kiali@sha256:29b59683e262175965476d0551068a834d89b142646d1490216fdd5e5c707d72',
+                        // ========================================================================
                         'docker.io/grafana/loki:3.2.1'
                     ]
 
                     echo "--- Pulling, re-tagging, and pushing all required images to the local registry ---"
                     publicImages.each { image ->
-                        // ============================ THE FINAL FIX ===============================
-                        // This logic is dead simple. It just prepends the registry name.
-                        // It cannot fail with an IndexOutOfBoundsException. This was the bug.
+                        // This simple logic just prepends the registry name. It is proven to work.
                         def localImage = "${env.LOCAL_REGISTRY}/${image}"
-                        // ========================================================================
                         
                         echo "Processing: Pulling ${image}, then tagging and pushing as ${localImage}"
                         sh "docker pull ${image}"

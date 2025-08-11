@@ -1,6 +1,6 @@
 #!/bin/bash
 # kind-deployment/setup-kind.sh
-# FINAL CORRECTED VERSION
+# FINAL, DEFINITIVE, CORRECTED VERSION
 set -e
 
 # --- Configuration ---
@@ -57,7 +57,10 @@ install_istio_addons() {
     sed -i "s|image: prom/prometheus:v2.53.1|image: ${LOCAL_REGISTRY_URL}/docker.io/prom/prometheus:v2.53.1|g" "${TMP_ADDONS_DIR}/prometheus.yaml"
     sed -i "s|image: jaegertracing/all-in-one:1.59|image: ${LOCAL_REGISTRY_URL}/docker.io/jaegertracing/all-in-one:1.59|g" "${TMP_ADDONS_DIR}/jaeger.yaml"
     sed -i "s|image: docker.io/grafana/grafana:11.3.1|image: ${LOCAL_REGISTRY_URL}/docker.io/grafana/grafana:11.3.1|g" "${TMP_ADDONS_DIR}/grafana.yaml"
-    sed -i "s|image: quay.io/kiali/kiali:v1.92|image: ${LOCAL_REGISTRY_URL}/quay.io/kiali/kiali:v1.92|g" "${TMP_ADDONS_DIR}/kiali.yaml"
+    # ============================ THE FINAL FIX ===============================
+    # This now replaces the original image tag with the new digest-based name.
+    sed -i "s|image: quay.io/kiali/kiali:v1.92|image: ${LOCAL_REGISTRY_URL}/quay.io/kiali/kiali@sha256:29b59683e262175965476d0551068a834d89b142646d1490216fdd5e5c707d72|g" "${TMP_ADDONS_DIR}/kiali.yaml"
+    # ========================================================================
     sed -i "s|image: grafana/loki:3.2.1|image: ${LOCAL_REGISTRY_URL}/docker.io/grafana/loki:3.2.1|g" "${TMP_ADDONS_DIR}/loki.yaml"
 
     echo "--- Applying modified addon manifests ---"
