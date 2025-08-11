@@ -6,14 +6,20 @@ set -e
 CLUSTER_NAME="lirmm-dev-cluster"
 KIND_CONFIG_FILE="./kind-deployment/kind-cluster-config.yaml"
 APP_NAMESPACE="lirmm-services"
-REGISTRY_SETUP_SCRIPT="./kind-deployment/setup-registry.sh"
-REGISTRY_NAME="kind-registry"
+REGISTRY_NAME='kind-registry'
+REGISTRY_PORT='5001'
+# !!! IMPORTANT: This version is now correct based on your output !!!
+ISTIO_VERSION="1.26.3"
 
 # --- Main Functions ---
 setup_registry() {
-    echo "--- Setting up local registry ---"
-    chmod +x "${REGISTRY_SETUP_SCRIPT}"
-    "${REGISTRY_SETUP_SCRIPT}"
+  echo "--- Setting up local Docker registry ---"
+  if [ "$(docker inspect -f '{{.State.Running}}' "${REGISTRY_NAME}" 2>/dev/null || true)" != 'true' ]; then
+    echo "Starting local Docker registry '${REGISTRY_NAME}' on host port ${REGISTRY_PORT}"
+    docker run -d --restart=always -p "127.0.0.1:${REGISTRY_PORT}:5000" --name "${REGISTRY_NAME}" registry:2
+  else
+    echo "Local registry '${REGISTRY_NAME}' is already running."
+  fi
 }
 
 create_cluster() {
@@ -23,40 +29,38 @@ create_cluster() {
     kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
 }
 
-connect_registry_to_cluster() {
-    echo "--- Connecting the local registry to the Kind network ---"
-    # The registry and the kind nodes need to be in the same docker network
-    # to communicate.
-    docker network connect "kind" "${REGISTRY_NAME}" || echo "Registry already connected to Kind network."
+connect_registry_to_network() {
+    echo "--- Connecting the local registry to the Kind Docker network ---"
+    docker network connect "kind" "${REGISTRY_NAME}" || echo "Registry is already connected to the Kind network."
 }
 
 install_istio() {
     echo "--- Checking for istioctl in the PATH ---"
-    if ! command -v istioctl &> /dev/null
-    then
-        echo "FATAL: istioctl could not be found in the PATH provided by Jenkins."
+    if ! command -v istioctl &> /dev/null; then
+        echo "FATAL: istioctl could not be found in the PATH."
         exit 1
     fi
 
-    echo "--- Installing Istio onto the cluster (demo profile) ---"
-    istioctl install --set profile=demo -y
+    echo "--- Installing Istio from LOCAL REGISTRY to prevent network errors ---"
+    # This now tells istioctl to use our local registry instead of the public one.
+    istioctl install --set profile=demo -y \
+      --set hub="localhost:5001/istio" \
+      --set tag="${ISTIO_VERSION}"
 
-    echo "--- Configuring Istio Ingress Gateway Service ---"
+    echo "--- Configuring Istio Ingress Gateway Service to use NodePort ---"
     kubectl patch svc istio-ingressgateway -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/ports/1/nodePort", "value":30000}]'
     kubectl patch svc istio-ingressgateway -n istio-system -p '{"spec": {"type": "NodePort"}}'
-
     echo "--- Istio installation complete. ---"
 }
 
 install_istio_addons() {
     echo "--- Installing Istio addons (Kiali, Prometheus, Grafana, etc.) ---"
-    # Find the istio installation directory to locate the addons
     ISTIO_DIR=$(dirname "$(dirname "$(which istioctl)")")
 
     if [ -d "$ISTIO_DIR/samples/addons" ]; then
         kubectl apply -f "$ISTIO_DIR/samples/addons"
         echo "--- Waiting for addons to be ready ---"
-        kubectl wait --for=condition=Available deployment -n istio-system --all --timeout=10m || echo "--- WARNING: Some addons may not be fully ready ---"
+        kubectl wait --for=condition=Available deployment -n istio-system --all --timeout=12m || echo "--- WARNING: Some addons may not be fully ready, which can be okay. ---"
     else
         echo "--- WARNING: Could not find Istio samples/addons directory. Skipping addon installation. ---"
     fi
@@ -69,10 +73,10 @@ setup_namespace() {
 }
 
 # --- Script Execution ---
-echo "--- Starting Full Cluster Setup with Istio ---"
+echo "--- Starting Full Cluster Setup ---"
 setup_registry
 create_cluster
-connect_registry_to_cluster
+connect_registry_to_network
 install_istio
 install_istio_addons
 setup_namespace
