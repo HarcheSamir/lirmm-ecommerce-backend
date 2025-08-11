@@ -1,4 +1,3 @@
-# kind-deployment/infra-manifests.yaml
 # =================================================================
 # INFRASTRUCTURE MANIFEST (YOURS, ADAPTED FOR ISTIO)
 # =================================================================
@@ -23,7 +22,7 @@ spec:
     spec:
       containers:
       - name: zookeeper
-        image: localhost:5001/confluentinc/cp-zookeeper:7.3.2
+        image: confluentinc/cp-zookeeper:7.3.2
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 2181
@@ -67,7 +66,7 @@ spec:
     spec:
       containers:
       - name: kafka
-        image: localhost:5001/confluentinc/cp-kafka:7.3.2
+        image: confluentinc/cp-kafka:7.3.2
         imagePullPolicy: IfNotPresent
         ports:
         - name: internal
@@ -127,7 +126,7 @@ spec:
     spec:
       containers:
       - name: elasticsearch
-        image: localhost:5001/docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9200
@@ -144,7 +143,7 @@ spec:
           httpGet:
             path: /_cluster/health?wait_for_status=yellow&timeout=1s
             port: 9200
-          initialDelaySeconds: 20
+          initialDelaySeconds: 20 # Give ES time to start up before probing
           periodSeconds: 10
         volumeMounts:
         - name: es-data
@@ -189,7 +188,7 @@ spec:
     spec:
       containers:
       - name: redis
-        image: localhost:5001/redis:7.2-alpine
+        image: redis:7.2-alpine
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 6379
@@ -235,7 +234,7 @@ spec:
     spec:
       containers:
       - name: auth-db
-        image: localhost:5001/postgres:15-alpine
+        image: postgres:15-alpine
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432
@@ -287,7 +286,7 @@ spec:
     spec:
       containers:
       - name: product-db
-        image: localhost:5001/postgres:15-alpine
+        image: postgres:15-alpine
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432
@@ -339,7 +338,7 @@ spec:
     spec:
       containers:
       - name: order-db
-        image: localhost:5001/postgres:15-alpine
+        image: postgres:15-alpine
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432
@@ -391,7 +390,7 @@ spec:
     spec:
       containers:
       - name: review-db
-        image: localhost:5001/postgres:15-alpine
+        image: postgres:15-alpine
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432
@@ -422,6 +421,7 @@ spec:
     port: 5432
     targetPort: 5432
 ---
+# --- START: NEW STATS DATABASE ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -443,7 +443,7 @@ spec:
     spec:
       containers:
       - name: stats-db
-        image: localhost:5001/postgres:15-alpine
+        image: postgres:15-alpine
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432

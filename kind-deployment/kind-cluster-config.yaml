@@ -1,11 +1,7 @@
-# kind-deployment/kind-cluster-config.yaml
+# In kind-cluster-config.yaml
+
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-# This patch ensures that the Kind nodes trust our insecure local registry.
-containerdConfigPatches:
-- |-
-  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5001"]
-    endpoint = ["http://kind-registry:5000"]
 nodes:
 - role: control-plane
   kubeadmConfigPatches:
@@ -20,9 +16,11 @@ nodes:
     hostPort: 13000
     protocol: TCP
   # Kafka
+  # --- FIX: Change the containerPort to avoid collision ---
   - containerPort: 30992
     hostPort: 29092
     protocol: TCP
+  # --- END FIX ---
   # Elasticsearch
   - containerPort: 32200
     hostPort: 9200

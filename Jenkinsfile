@@ -1,32 +1,32 @@
-// Jenkinsfile
-// This pipeline builds and deploys applications using the local registry.
+// This is the final, correct application pipeline. It restarts ONLY the applications.
 pipeline {
     agent { label 'wsl' }
 
     environment {
-        LOCAL_REGISTRY      = "localhost:5001"
-        IMAGE_PREFIX        = "${LOCAL_REGISTRY}/lirmm-ecommerce" // Point to the registry
+        IMAGE_PREFIX        = 'lirmm-ecommerce'
         IMAGE_TAG           = 'latest'
+        KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
         APP_NAMESPACE       = 'lirmm-services'
         APP_MANIFEST_FILE   = './kind-deployment/app-manifests.yaml'
     }
 
     stages {
-        stage('Build & Push Application Images') {
+        stage('Build & Load Application Images') {
             steps {
                 script {
-                    echo "--- Building and pushing all application service images to local registry ---"
+                    echo "--- Building and loading all application service images ---"
+                    // --- MODIFICATION: ADD NEW SERVICES ---
                     def services = [
                         'api-gateway', 'auth-service', 'product-service', 'image-service',
                         'search-service', 'cart-service', 'order-service', 'review-service',
                         'payment-service', 'stats-service'
                     ]
+                    // --- END MODIFICATION ---
 
                     services.each { service ->
                         def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
-                        echo "Building and pushing ${imageName}"
                         sh "docker build -t ${imageName} ./${service}"
-                        sh "docker push ${imageName}" // Push to the local registry
+                        sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
                     }
                 }
             }
