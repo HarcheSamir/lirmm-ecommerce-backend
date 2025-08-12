@@ -42,7 +42,7 @@ const products = [
              },
              "price":1299.99,
              "costPrice":950.00,
-             "initialStockQuantity":25,
+             "initialStockQuantity":125458525,
              "lowStockThreshold":5
           },
           {
@@ -53,7 +53,7 @@ const products = [
              },
              "price":1299.99,
              "costPrice":950.00,
-             "initialStockQuantity":20,
+             "initialStockQuantity":125458520,
              "lowStockThreshold":5
           },
           {
@@ -64,7 +64,7 @@ const products = [
              },
              "price":1299.99,
              "costPrice":950.00,
-             "initialStockQuantity":15,
+             "initialStockQuantity":125458515,
              "lowStockThreshold":3
           }
        ]
@@ -112,7 +112,7 @@ const products = [
              },
              "price":999.00,
              "costPrice":720.00,
-             "initialStockQuantity":30,
+             "initialStockQuantity":125458530,
              "lowStockThreshold":8
           },
           {
@@ -123,7 +123,7 @@ const products = [
              },
              "price":999.00,
              "costPrice":720.00,
-             "initialStockQuantity":25,
+             "initialStockQuantity":125458525,
              "lowStockThreshold":8
           },
           {
@@ -134,7 +134,7 @@ const products = [
              },
              "price":999.00,
              "costPrice":720.00,
-             "initialStockQuantity":22,
+             "initialStockQuantity":125458522,
              "lowStockThreshold":8
           }
        ]
@@ -182,7 +182,7 @@ const products = [
              },
              "price":799.99,
              "costPrice":580.00,
-             "initialStockQuantity":20,
+             "initialStockQuantity":125458520,
              "lowStockThreshold":5
           },
           {
@@ -193,7 +193,7 @@ const products = [
              },
              "price":799.99,
              "costPrice":580.00,
-             "initialStockQuantity":30,
+             "initialStockQuantity":125458530,
              "lowStockThreshold":5
           }
        ]
@@ -241,7 +241,7 @@ const products = [
              },
              "price":2149.00,
              "costPrice":1600.00,
-             "initialStockQuantity":15,
+             "initialStockQuantity":125458515,
              "lowStockThreshold":3
           },
           {
@@ -252,7 +252,7 @@ const products = [
              },
              "price":2349.00,
              "costPrice":1750.00,
-             "initialStockQuantity":10,
+             "initialStockQuantity":125458510,
              "lowStockThreshold":2
           },
           {
@@ -263,7 +263,7 @@ const products = [
              },
              "price":2799.00,
              "costPrice":2100.00,
-             "initialStockQuantity":5,
+             "initialStockQuantity":12545855,
              "lowStockThreshold":1
           }
        ]
@@ -305,7 +305,7 @@ const products = [
              },
              "price":2399.00,
              "costPrice":1850.00,
-             "initialStockQuantity":12,
+             "initialStockQuantity":125458512,
              "lowStockThreshold":2
           },
           {
@@ -316,7 +316,7 @@ const products = [
              },
              "price":2099.00,
              "costPrice":1600.00,
-             "initialStockQuantity":18,
+             "initialStockQuantity":125458518,
              "lowStockThreshold":4
           }
        ]
@@ -366,7 +366,7 @@ const products = [
              },
              "price":1649.99,
              "costPrice":1200.00,
-             "initialStockQuantity":18,
+             "initialStockQuantity":125458518,
              "lowStockThreshold":4
           },
           {
@@ -379,7 +379,7 @@ const products = [
              },
              "price":1649.99,
              "costPrice":1200.00,
-             "initialStockQuantity":15,
+             "initialStockQuantity":125458515,
              "lowStockThreshold":4
           }
        ]
@@ -426,7 +426,7 @@ const products = [
              },
              "price":99.99,
              "costPrice":65.00,
-             "initialStockQuantity":150,
+             "initialStockQuantity":1254585150,
              "lowStockThreshold":20
           },
           {
@@ -436,7 +436,7 @@ const products = [
              },
              "price":99.99,
              "costPrice":65.00,
-             "initialStockQuantity":90,
+             "initialStockQuantity":125458590,
              "lowStockThreshold":15
           }
        ]
@@ -483,7 +483,7 @@ const products = [
              },
              "price":149.99,
              "costPrice":105.00,
-             "initialStockQuantity":80,
+             "initialStockQuantity":125458580,
              "lowStockThreshold":10
           }
        ]
@@ -530,7 +530,7 @@ const products = [
              },
              "price":399.99,
              "costPrice":280.00,
-             "initialStockQuantity":40,
+             "initialStockQuantity":125458540,
              "lowStockThreshold":5
           },
           {
@@ -540,7 +540,7 @@ const products = [
              },
              "price":399.99,
              "costPrice":280.00,
-             "initialStockQuantity":35,
+             "initialStockQuantity":125458535,
              "lowStockThreshold":5
           },
           {
@@ -550,7 +550,7 @@ const products = [
              },
              "price":399.99,
              "costPrice":280.00,
-             "initialStockQuantity":30,
+             "initialStockQuantity":125458530,
              "lowStockThreshold":5
           }
        ]
@@ -597,7 +597,7 @@ const products = [
              },
              "price":109.99,
              "costPrice":75.00,
-             "initialStockQuantity":75,
+             "initialStockQuantity":125458575,
              "lowStockThreshold":15
           },
           {
@@ -607,7 +607,7 @@ const products = [
              },
              "price":109.99,
              "costPrice":75.00,
-             "initialStockQuantity":50,
+             "initialStockQuantity":125458550,
              "lowStockThreshold":10
           }
        ]
@@ -655,7 +655,7 @@ const products = [
              },
              "price":110.00,
              "costPrice":60.00,
-             "initialStockQuantity":50,
+             "initialStockQuantity":125458550,
              "lowStockThreshold":10
           },
           {
@@ -666,7 +666,7 @@ const products = [
              },
              "price":110.00,
              "costPrice":60.00,
-             "initialStockQuantity":45,
+             "initialStockQuantity":125458545,
              "lowStockThreshold":10
           },
           {
@@ -677,7 +677,7 @@ const products = [
              },
              "price":110.00,
              "costPrice":60.00,
-             "initialStockQuantity":60,
+             "initialStockQuantity":125458560,
              "lowStockThreshold":10
           }
        ]
@@ -725,7 +725,7 @@ const products = [
              },
              "price":180.00,
              "costPrice":95.00,
-             "initialStockQuantity":35,
+             "initialStockQuantity":125458535,
              "lowStockThreshold":7
           },
           {
@@ -736,7 +736,7 @@ const products = [
              },
              "price":180.00,
              "costPrice":95.00,
-             "initialStockQuantity":30,
+             "initialStockQuantity":125458530,
              "lowStockThreshold":7
           },
           {
@@ -747,7 +747,7 @@ const products = [
              },
              "price":180.00,
              "costPrice":95.00,
-             "initialStockQuantity":40,
+             "initialStockQuantity":125458540,
              "lowStockThreshold":7
           }
        ]
@@ -795,7 +795,7 @@ const products = [
              },
              "price":199.99,
              "costPrice":120.00,
-             "initialStockQuantity":25,
+             "initialStockQuantity":125458525,
              "lowStockThreshold":5
           },
           {
@@ -806,7 +806,7 @@ const products = [
              },
              "price":199.99,
              "costPrice":120.00,
-             "initialStockQuantity":20,
+             "initialStockQuantity":125458520,
              "lowStockThreshold":5
           },
           {
@@ -817,7 +817,7 @@ const products = [
              },
              "price":199.99,
              "costPrice":120.00,
-             "initialStockQuantity":15,
+             "initialStockQuantity":125458515,
              "lowStockThreshold":3
           }
        ]
@@ -866,7 +866,7 @@ const products = [
              },
              "price":129.00,
              "costPrice":70.00,
-             "initialStockQuantity":30,
+             "initialStockQuantity":125458530,
              "lowStockThreshold":5
           },
           {
@@ -878,7 +878,7 @@ const products = [
              },
              "price":129.00,
              "costPrice":70.00,
-             "initialStockQuantity":25,
+             "initialStockQuantity":125458525,
              "lowStockThreshold":5
           },
           {
@@ -890,7 +890,7 @@ const products = [
              },
              "price":149.00,
              "costPrice":80.00,
-             "initialStockQuantity":20,
+             "initialStockQuantity":125458520,
              "lowStockThreshold":4
           }
        ]
@@ -939,7 +939,7 @@ const products = [
              },
              "price":549.99,
              "costPrice":350.00,
-             "initialStockQuantity":20,
+             "initialStockQuantity":125458520,
              "lowStockThreshold":4
           },
           {
@@ -951,7 +951,7 @@ const products = [
              },
              "price":549.99,
              "costPrice":350.00,
-             "initialStockQuantity":15,
+             "initialStockQuantity":125458515,
              "lowStockThreshold":4
           }
        ]
@@ -998,7 +998,7 @@ const products = [
              },
              "price":229.00,
              "costPrice":140.00,
-             "initialStockQuantity":40,
+             "initialStockQuantity":125458540,
              "lowStockThreshold":8
           },
           {
@@ -1008,7 +1008,7 @@ const products = [
              },
              "price":249.00,
              "costPrice":155.00,
-             "initialStockQuantity":30,
+             "initialStockQuantity":125458530,
              "lowStockThreshold":6
           }
        ]
@@ -1056,7 +1056,7 @@ const products = [
              },
              "price":619.99,
              "costPrice":450.00,
-             "initialStockQuantity":25,
+             "initialStockQuantity":125458525,
              "lowStockThreshold":5
           }
        ]
@@ -1104,7 +1104,7 @@ const products = [
              },
              "price":449.99,
              "costPrice":320.00,
-             "initialStockQuantity":30,
+             "initialStockQuantity":125458530,
              "lowStockThreshold":6
           }
        ]
@@ -1152,7 +1152,7 @@ const products = [
              },
              "price":549.99,
              "costPrice":410.00,
-             "initialStockQuantity":18,
+             "initialStockQuantity":125458518,
              "lowStockThreshold":4
           }
        ]
@@ -1200,7 +1200,7 @@ const products = [
              },
              "price":69.99,
              "costPrice":40.00,
-             "initialStockQuantity":60,
+             "initialStockQuantity":125458560,
              "lowStockThreshold":10
           },
           {
@@ -1211,7 +1211,7 @@ const products = [
              },
              "price":69.99,
              "costPrice":40.00,
-             "initialStockQuantity":50,
+             "initialStockQuantity":125458550,
              "lowStockThreshold":10
           },
           {
@@ -1222,7 +1222,7 @@ const products = [
              },
              "price":49.99,
              "costPrice":28.00,
-             "initialStockQuantity":70,
+             "initialStockQuantity":125458570,
              "lowStockThreshold":15
           }
        ]
@@ -1270,7 +1270,7 @@ const products = [
              },
              "price":59.99,
              "costPrice":35.00,
-             "initialStockQuantity":75,
+             "initialStockQuantity":125458575,
              "lowStockThreshold":15
           },
           {
@@ -1281,7 +1281,7 @@ const products = [
              },
              "price":59.99,
              "costPrice":35.00,
-             "initialStockQuantity":60,
+             "initialStockQuantity":125458560,
              "lowStockThreshold":15
           },
           {
@@ -1292,7 +1292,7 @@ const products = [
              },
              "price":49.99,
              "costPrice":29.00,
-             "initialStockQuantity":50,
+             "initialStockQuantity":125458550,
              "lowStockThreshold":10
           }
        ]
@@ -1338,7 +1338,7 @@ const products = [
              },
              "price":29.99,
              "costPrice":18.00,
-             "initialStockQuantity":200,
+             "initialStockQuantity":1254585200,
              "lowStockThreshold":30
           },
           {
@@ -1347,7 +1347,7 @@ const products = [
              },
              "price":21.99,
              "costPrice":13.00,
-             "initialStockQuantity":250,
+             "initialStockQuantity":1254585250,
              "lowStockThreshold":35
           },
           {
@@ -1356,7 +1356,7 @@ const products = [
              },
              "price":14.99,
              "costPrice":9.00,
-             "initialStockQuantity":300,
+             "initialStockQuantity":1254585300,
              "lowStockThreshold":40
           }
        ]
@@ -1402,7 +1402,7 @@ const products = [
              },
              "price":10.99,
              "costPrice":5.50,
-             "initialStockQuantity":500,
+             "initialStockQuantity":1254585500,
              "lowStockThreshold":50
           }
        ]
@@ -1448,7 +1448,7 @@ const products = [
              },
              "price":89.99,
              "costPrice":60.00,
-             "initialStockQuantity":60,
+             "initialStockQuantity":125458560,
              "lowStockThreshold":10
           },
           {
@@ -1457,7 +1457,7 @@ const products = [
              },
              "price":109.99,
              "costPrice":75.00,
-             "initialStockQuantity":40,
+             "initialStockQuantity":125458540,
              "lowStockThreshold":8
           },
           {
@@ -1466,7 +1466,7 @@ const products = [
              },
              "price":79.99,
              "costPrice":55.00,
-             "initialStockQuantity":50,
+             "initialStockQuantity":125458550,
              "lowStockThreshold":10
           }
        ]
@@ -1512,7 +1512,7 @@ const products = [
              },
              "price":19.99,
              "costPrice":12.00,
-             "initialStockQuantity":120,
+             "initialStockQuantity":1254585120,
              "lowStockThreshold":20
           }
        ]
@@ -1558,7 +1558,7 @@ const products = [
              },
              "price":17.99,
              "costPrice":11.00,
-             "initialStockQuantity":100,
+             "initialStockQuantity":1254585100,
              "lowStockThreshold":15
           },
           {
@@ -1567,7 +1567,7 @@ const products = [
              },
              "price":18.99,
              "costPrice":11.50,
-             "initialStockQuantity":80,
+             "initialStockQuantity":125458580,
              "lowStockThreshold":15
           }
        ]
@@ -1613,7 +1613,7 @@ const products = [
              },
              "price":16.99,
              "costPrice":10.50,
-             "initialStockQuantity":90,
+             "initialStockQuantity":125458590,
              "lowStockThreshold":15
           },
           {
@@ -1622,7 +1622,7 @@ const products = [
              },
              "price":12.99,
              "costPrice":7.50,
-             "initialStockQuantity":110,
+             "initialStockQuantity":1254585110,
              "lowStockThreshold":20
           }
        ]
@@ -1668,7 +1668,7 @@ const products = [
              },
              "price":38.00,
              "costPrice":24.00,
-             "initialStockQuantity":70,
+             "initialStockQuantity":125458570,
              "lowStockThreshold":10
           },
           {
@@ -1677,7 +1677,7 @@ const products = [
              },
              "price":48.00,
              "costPrice":30.00,
-             "initialStockQuantity":40,
+             "initialStockQuantity":125458540,
              "lowStockThreshold":8
           }
        ]
@@ -1725,7 +1725,7 @@ const products = [
              },
              "price":69.50,
              "costPrice":35.00,
-             "initialStockQuantity":80,
+             "initialStockQuantity":125458580,
              "lowStockThreshold":10
           },
           {
@@ -1736,7 +1736,7 @@ const products = [
              },
              "price":69.50,
              "costPrice":35.00,
-             "initialStockQuantity":75,
+             "initialStockQuantity":125458575,
              "lowStockThreshold":10
           },
           {
@@ -1747,7 +1747,7 @@ const products = [
              },
              "price":69.50,
              "costPrice":35.00,
-             "initialStockQuantity":60,
+             "initialStockQuantity":125458560,
              "lowStockThreshold":8
           }
        ]
@@ -1795,7 +1795,7 @@ const products = [
              },
              "price":19.99,
              "costPrice":10.00,
-             "initialStockQuantity":250,
+             "initialStockQuantity":1254585250,
              "lowStockThreshold":30
           },
           {
@@ -1806,7 +1806,7 @@ const products = [
              },
              "price":19.99,
              "costPrice":10.00,
-             "initialStockQuantity":300,
+             "initialStockQuantity":1254585300,
              "lowStockThreshold":30
           },
           {
@@ -1817,7 +1817,7 @@ const products = [
              },
              "price":19.99,
              "costPrice":10.00,
-             "initialStockQuantity":200,
+             "initialStockQuantity":1254585200,
              "lowStockThreshold":25
           }
        ]
@@ -1865,7 +1865,7 @@ const products = [
              },
              "price":65.00,
              "costPrice":32.00,
-             "initialStockQuantity":90,
+             "initialStockQuantity":125458590,
              "lowStockThreshold":10
           },
           {
@@ -1876,7 +1876,7 @@ const products = [
              },
              "price":65.00,
              "costPrice":32.00,
-             "initialStockQuantity":100,
+             "initialStockQuantity":1254585100,
              "lowStockThreshold":12
           },
           {
@@ -1887,7 +1887,7 @@ const products = [
              },
              "price":65.00,
              "costPrice":32.00,
-             "initialStockQuantity":80,
+             "initialStockQuantity":125458580,
              "lowStockThreshold":10
           }
        ]
@@ -1934,7 +1934,7 @@ const products = [
              },
              "price":239.99,
              "costPrice":170.00,
-             "initialStockQuantity":20,
+             "initialStockQuantity":125458520,
              "lowStockThreshold":4
           }
        ]
@@ -1980,7 +1980,7 @@ const products = [
              },
              "price":21.99,
              "costPrice":12.00,
-             "initialStockQuantity":80,
+             "initialStockQuantity":125458580,
              "lowStockThreshold":10
           },
           {
@@ -1989,7 +1989,7 @@ const products = [
              },
              "price":21.99,
              "costPrice":12.00,
-             "initialStockQuantity":75,
+             "initialStockQuantity":125458575,
              "lowStockThreshold":10
           },
           {
@@ -1998,7 +1998,7 @@ const products = [
              },
              "price":21.99,
              "costPrice":12.00,
-             "initialStockQuantity":60,
+             "initialStockQuantity":125458560,
              "lowStockThreshold":8
           }
        ]
@@ -2045,7 +2045,7 @@ const products = [
              },
              "price":49.99,
              "costPrice":28.00,
-             "initialStockQuantity":100,
+             "initialStockQuantity":1254585100,
              "lowStockThreshold":15
           }
        ]
@@ -2092,7 +2092,7 @@ const products = [
              },
              "price":54.99,
              "costPrice":30.00,
-             "initialStockQuantity":70,
+             "initialStockQuantity":125458570,
              "lowStockThreshold":10
           }
        ]
@@ -2141,7 +2141,7 @@ const products = [
              },
              "price":299.95,
              "costPrice":190.00,
-             "initialStockQuantity":25,
+             "initialStockQuantity":125458525,
              "lowStockThreshold":5
           },
           {
@@ -2152,7 +2152,7 @@ const products = [
              },
              "price":299.95,
              "costPrice":190.00,
-             "initialStockQuantity":30,
+             "initialStockQuantity":125458530,
              "lowStockThreshold":5
           },
           {
@@ -2163,7 +2163,7 @@ const products = [
              },
              "price":299.95,
              "costPrice":190.00,
-             "initialStockQuantity":20,
+             "initialStockQuantity":125458520,
              "lowStockThreshold":4
           }
        ]
@@ -2209,7 +2209,7 @@ const products = [
              },
              "price":49.95,
              "costPrice":30.00,
-             "initialStockQuantity":120,
+             "initialStockQuantity":1254585120,
              "lowStockThreshold":20
           }
        ]
@@ -2255,7 +2255,7 @@ const products = [
              },
              "price":54.95,
              "costPrice":32.00,
-             "initialStockQuantity":90,
+             "initialStockQuantity":125458590,
              "lowStockThreshold":15
           },
           {
@@ -2264,7 +2264,7 @@ const products = [
              },
              "price":44.95,
              "costPrice":26.00,
-             "initialStockQuantity":50,
+             "initialStockQuantity":125458550,
              "lowStockThreshold":10
           }
        ]
@@ -2313,7 +2313,7 @@ const products = [
              },
              "price":22.95,
              "costPrice":12.00,
-             "initialStockQuantity":300,
+             "initialStockQuantity":1254585300,
              "lowStockThreshold":40
           },
           {
@@ -2325,7 +2325,7 @@ const products = [
              },
              "price":22.95,
              "costPrice":12.00,
-             "initialStockQuantity":150,
+             "initialStockQuantity":1254585150,
              "lowStockThreshold":20
           },
           {
@@ -2337,7 +2337,7 @@ const products = [
              },
              "price":22.95,
              "costPrice":12.00,
-             "initialStockQuantity":100,
+             "initialStockQuantity":1254585100,
              "lowStockThreshold":15
           }
        ]
@@ -2385,7 +2385,7 @@ const products = [
              },
              "price":14.99,
              "costPrice":8.00,
-             "initialStockQuantity":500,
+             "initialStockQuantity":1254585500,
              "lowStockThreshold":50
           },
           {
@@ -2396,7 +2396,7 @@ const products = [
              },
              "price":14.99,
              "costPrice":8.00,
-             "initialStockQuantity":300,
+             "initialStockQuantity":1254585300,
              "lowStockThreshold":40
           },
           {
@@ -2407,7 +2407,7 @@ const products = [
              },
              "price":14.99,
              "costPrice":8.00,
-             "initialStockQuantity":400,
+             "initialStockQuantity":1254585400,
              "lowStockThreshold":50
           }
        ]
@@ -2454,7 +2454,7 @@ const products = [
              },
              "price":15.99,
              "costPrice":9.00,
-             "initialStockQuantity":150,
+             "initialStockQuantity":1254585150,
              "lowStockThreshold":20
           }
        ]
@@ -2501,7 +2501,7 @@ const products = [
              },
              "price":12.49,
              "costPrice":7.00,
-             "initialStockQuantity":200,
+             "initialStockQuantity":1254585200,
              "lowStockThreshold":30
           },
           {
@@ -2511,7 +2511,7 @@ const products = [
              },
              "price":8.99,
              "costPrice":5.00,
-             "initialStockQuantity":250,
+             "initialStockQuantity":1254585250,
              "lowStockThreshold":35
           }
        ]
@@ -2558,7 +2558,7 @@ const products = [
              },
              "price":129.99,
              "costPrice":95.00,
-             "initialStockQuantity":50,
+             "initialStockQuantity":125458550,
              "lowStockThreshold":10
           },
           {
@@ -2568,7 +2568,7 @@ const products = [
              },
              "price":129.99,
              "costPrice":95.00,
-             "initialStockQuantity":30,
+             "initialStockQuantity":125458530,
              "lowStockThreshold":5
           },
           {
@@ -2578,7 +2578,7 @@ const products = [
              },
              "price":134.99,
              "costPrice":98.00,
-             "initialStockQuantity":25,
+             "initialStockQuantity":125458525,
              "lowStockThreshold":5
           }
        ]
@@ -2626,7 +2626,7 @@ const products = [
              },
              "price":13.99,
              "costPrice":7.50,
-             "initialStockQuantity":400,
+             "initialStockQuantity":1254585400,
              "lowStockThreshold":50
           },
           {
@@ -2637,7 +2637,7 @@ const products = [
              },
              "price":14.99,
              "costPrice":8.00,
-             "initialStockQuantity":300,
+             "initialStockQuantity":1254585300,
              "lowStockThreshold":40
           }
        ]
@@ -2684,7 +2684,7 @@ const products = [
              },
              "price":80.00,
              "costPrice":45.00,
-             "initialStockQuantity":100,
+             "initialStockQuantity":1254585100,
              "lowStockThreshold":15
           },
           {
@@ -2694,7 +2694,7 @@ const products = [
              },
              "price":80.00,
              "costPrice":45.00,
-             "initialStockQuantity":80,
+             "initialStockQuantity":125458580,
              "lowStockThreshold":12
           },
           {
@@ -2704,7 +2704,7 @@ const products = [
              },
              "price":80.00,
              "costPrice":45.00,
-             "initialStockQuantity":90,
+             "initialStockQuantity":125458590,
              "lowStockThreshold":15
           }
        ]
@@ -2751,7 +2751,7 @@ const products = [
              },
              "price":99.99,
              "costPrice":55.00,
-             "initialStockQuantity":60,
+             "initialStockQuantity":125458560,
              "lowStockThreshold":10
           },
           {
@@ -2761,7 +2761,7 @@ const products = [
              },
              "price":99.99,
              "costPrice":55.00,
-             "initialStockQuantity":45,
+             "initialStockQuantity":125458545,
              "lowStockThreshold":8
           },
           {
@@ -2771,7 +2771,7 @@ const products = [
              },
              "price":99.99,
              "costPrice":55.00,
-             "initialStockQuantity":50,
+             "initialStockQuantity":125458550,
              "lowStockThreshold":10
           }
        ]
@@ -2818,7 +2818,7 @@ const products = [
              },
              "price":99.00,
              "costPrice":60.00,
-             "initialStockQuantity":80,
+             "initialStockQuantity":125458580,
              "lowStockThreshold":10
           },
           {
@@ -2828,7 +2828,7 @@ const products = [
              },
              "price":99.00,
              "costPrice":60.00,
-             "initialStockQuantity":70,
+             "initialStockQuantity":125458570,
              "lowStockThreshold":10
           },
           {
@@ -2838,7 +2838,7 @@ const products = [
              },
              "price":99.00,
              "costPrice":60.00,
-             "initialStockQuantity":60,
+             "initialStockQuantity":125458560,
              "lowStockThreshold":8
           }
        ]
@@ -2886,7 +2886,7 @@ const products = [
              },
              "price":295.00,
              "costPrice":180.00,
-             "initialStockQuantity":40,
+             "initialStockQuantity":125458540,
              "lowStockThreshold":8
           },
           {
@@ -2897,7 +2897,7 @@ const products = [
              },
              "price":295.00,
              "costPrice":180.00,
-             "initialStockQuantity":35,
+             "initialStockQuantity":125458535,
              "lowStockThreshold":8
           },
           {
@@ -2908,7 +2908,7 @@ const products = [
              },
              "price":295.00,
              "costPrice":180.00,
-             "initialStockQuantity":30,
+             "initialStockQuantity":125458530,
              "lowStockThreshold":6
           }
        ]
@@ -2956,7 +2956,7 @@ const products = [
              },
              "price":69.95,
              "costPrice":35.00,
-             "initialStockQuantity":150,
+             "initialStockQuantity":1254585150,
              "lowStockThreshold":20
           }
        ]
@@ -3004,7 +3004,7 @@ const products = [
              },
              "price":109.95,
              "costPrice":70.00,
-             "initialStockQuantity":75,
+             "initialStockQuantity":125458575,
              "lowStockThreshold":10
           },
           {
@@ -3015,7 +3015,7 @@ const products = [
              },
              "price":119.95,
              "costPrice":75.00,
-             "initialStockQuantity":60,
+             "initialStockQuantity":125458560,
              "lowStockThreshold":8
           }
        ]
