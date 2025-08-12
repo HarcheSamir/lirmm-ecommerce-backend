@@ -1,5 +1,4 @@
-// This is your original, working pipeline structure,
-// with the one addition needed to refresh the infrastructure services.
+// This is the final, correct pipeline. It restores YOUR original, proven logic for pre-loading images.
 pipeline {
     agent { label 'wsl' }
 
@@ -7,7 +6,7 @@ pipeline {
         ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
         APP_NAMESPACE       = 'lirmm-services'
         INFRA_MANIFEST_FILE = './kind-deployment/infra-manifests.yaml'
-        KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
+        KIND_CLUSTER_NAME   = "lirmm-dev-cluster" // Added for kind load command
     }
 
     stages {
@@ -41,10 +40,7 @@ pipeline {
                 }
             }
         }
-        //
-        // KEY CHANGE: Added "Refresh" to the name and one 'sh' command to restart deployments.
-        //
-        stage('Deploy & Refresh Infrastructure Services') {
+        stage('Deploy Infrastructure Services') {
             steps {
                 script {
                     echo "--- Ensuring namespace '${env.APP_NAMESPACE}' exists ---"
@@ -52,9 +48,6 @@ pipeline {
 
                     echo "--- Applying ALL infrastructure manifests ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
-
-                    echo "--- Forcing rollout restart to get a fresh data state ---"
-                    sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l 'component in (zookeeper, kafka, elasticsearch, redis, database)'"
 
                     echo "--- Waiting for infrastructure to become available (YOUR ORIGINAL LOGIC) ---"
                     sh "kubectl wait --for=condition=Available deployment -l component=zookeeper -n ${env.APP_NAMESPACE} --timeout=5m"
