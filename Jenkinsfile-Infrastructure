@@ -1,4 +1,5 @@
-// This is the final, correct pipeline. It restores YOUR original, proven logic for pre-loading images.
+// This is the MODIFIED infrastructure pipeline.
+// It keeps the cluster running but refreshes all data services for a clean state.
 pipeline {
     agent { label 'wsl' }
 
@@ -6,11 +7,11 @@ pipeline {
         ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
         APP_NAMESPACE       = 'lirmm-services'
         INFRA_MANIFEST_FILE = './kind-deployment/infra-manifests.yaml'
-        KIND_CLUSTER_NAME   = "lirmm-dev-cluster" // Added for kind load command
+        KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
     }
 
     stages {
-        stage('Setup Kind Cluster and Istio') {
+        stage('Ensure Cluster and Istio are Running') {
             steps {
                 script {
                     def publicImages = [
@@ -21,35 +22,43 @@ pipeline {
                         'redis:7.2-alpine'
                     ]
 
-                    echo "--- Pulling heavy public images to the agent ---"
+                    echo "--- Pulling public images to the agent (for the first run) ---"
                     publicImages.each { image ->
-                        sh "docker pull ${image}"
+                        // Using --quiet to reduce log noise on subsequent runs
+                        sh "docker pull --quiet ${image}"
                     }
 
-                    echo "--- Running the main setup script to create the cluster and install Istio ---"
+                    echo "--- Running the idempotent setup script to create the cluster ONLY IF needed ---"
                     withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
                         sh "chmod +x ./kind-deployment/setup-kind.sh"
                         sh "./kind-deployment/setup-kind.sh"
                     }
 
-                    echo "--- Loading heavy images into Kind (YOUR ORIGINAL LOGIC) ---"
+                    echo "--- Loading images into Kind (this is fast if images already exist) ---"
                     publicImages.each { image ->
-                        echo "Loading: ${image}"
                         sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME}"
                     }
                 }
             }
         }
-        stage('Deploy Infrastructure Services') {
+        // =================================================================
+        // KEY CHANGE: This stage now refreshes deployments instead of just creating them.
+        // =================================================================
+        stage('Deploy & Refresh Infrastructure Services') {
             steps {
                 script {
                     echo "--- Ensuring namespace '${env.APP_NAMESPACE}' exists ---"
                     sh "kubectl create namespace ${env.APP_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -"
 
-                    echo "--- Applying ALL infrastructure manifests ---"
+                    echo "--- Applying ALL infrastructure manifests to ensure objects are created/updated ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Waiting for infrastructure to become available (YOUR ORIGINAL LOGIC) ---"
+                    echo "--- Forcing rollout restart of ALL infrastructure deployments to get a fresh data state ---"
+                    // This command targets all deployments with a 'component' label.
+                    // Restarting the pods clears their ephemeral emptyDir volumes.
+                    sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l 'component in (zookeeper, kafka, elasticsearch, redis, database)'"
+
+                    echo "--- Waiting for infrastructure to become available after restart ---"
                     sh "kubectl wait --for=condition=Available deployment -l component=zookeeper -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=kafka -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=elasticsearch -n ${env.APP_NAMESPACE} --timeout=15m"
@@ -61,7 +70,12 @@ pipeline {
     }
     post {
         success {
-            echo "--- INFRASTRUCTURE DEPLOYMENT SUCCEEDED ---"
+            echo "--- INFRASTRUCTURE DEPLOYMENT & REFRESH SUCCEEDED ---"
+            echo "--- All databases and stateful services have been reset to a clean state. ---"
+            echo "--- You can now run the application pipeline to deploy your code. ---"
+        }
+        failure {
+            echo "--- INFRASTRUCTURE DEPLOYMENT FAILED ---"
         }
     }
 }
