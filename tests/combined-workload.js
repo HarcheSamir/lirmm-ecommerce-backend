@@ -7,6 +7,7 @@ const baseUrl = 'http://localhost:13000';
 
 // ==============================================================================
 //  SETUP FUNCTION
+//  This runs ONCE before any VUs start. We create a pool of test users here.
 // ==============================================================================
 export function setup() {
   console.log('--- Setting up registered test user pool ---');
@@ -21,10 +22,65 @@ export function setup() {
     const res = http.post(`${baseUrl}/auth/register`, registerPayload, { headers });
     if (res.status === 201) {
       userPool.push({ email, password });
+    } else {
+      console.error(`Failed to register user ${email}: ${res.status} ${res.body}`);
     }
   }
   console.log(`--- Created ${userPool.length} users for the test ---`);
-  return { users: userPool };
+  return { users: userPool }; // This data is passed to the VU functions
+}
+
+// ==============================================================================
+//  HELPER FUNCTIONS
+// ==============================================================================
+
+function getRandomProducts(count = 1) {
+  const productsToReturn = [];
+  // Fetch a larger list of products to ensure variety and avoid duplicates
+  const prodRes = http.get(`${baseUrl}/products?page=1&limit=50`);
+  if (prodRes.status !== 200 || !prodRes.body) return null;
+  
+  try {
+    const productsData = prodRes.json().data;
+    if (productsData.length === 0) return null;
+
+    // Use a Set to ensure we don't pick the same product twice in one order
+    const pickedProductIds = new Set();
+
+    for (let i = 0; i < count; i++) {
+      if (productsToReturn.length >= productsData.length) break; // Can't pick more than available
+
+      let product;
+      let attempt = 0;
+      // Loop to find a product we haven't already picked for this order
+      do {
+        product = productsData[Math.floor(Math.random() * productsData.length)];
+        attempt++;
+      } while (pickedProductIds.has(product.id) && attempt < 10);
+
+      if (pickedProductIds.has(product.id)) continue; // Skip if we couldn't find a unique one
+      
+      pickedProductIds.add(product.id);
+      
+      if (product.variants && product.variants.length > 0) {
+        const variant = product.variants[Math.floor(Math.random() * product.variants.length)];
+        productsToReturn.push({ product, variant });
+      }
+    }
+    return productsToReturn;
+  } catch(e) { 
+    return null;
+  }
+}
+
+// Helper to generate a random past date in ISO format
+function getRandomPastDateISO() {
+    const now = new Date();
+    const twoYearsAgo = new Date();
+    twoYearsAgo.setFullYear(now.getFullYear() - 2);
+    // getTime() returns milliseconds since epoch
+    const randomTimestamp = Math.random() * (now.getTime() - twoYearsAgo.getTime()) + twoYearsAgo.getTime();
+    return new Date(randomTimestamp).toISOString();
 }
 
 // ==============================================================================
@@ -46,69 +102,70 @@ export function missionCustomer() {
 }
 
 export function guestBuyer() {
-  const prodRes = http.get(`${baseUrl}/products?page=1&limit=20`);
-  if (!check(prodRes, { 'GuestBuyer: Step 1 - Get Products is 200': (r) => r.status === 200 })) return;
-
-  let product, variant;
-  try {
-    const productsData = prodRes.json().data;
-    if (productsData.length === 0) return;
-    product = productsData[Math.floor(Math.random() * productsData.length)];
-    if (!product.variants || product.variants.length === 0) return;
-    variant = product.variants[Math.floor(Math.random() * product.variants.length)];
-  } catch (e) { return; }
-
+  const itemCount = Math.floor(Math.random() * 3) + 1; // 1, 2, or 3 items
+  const selections = getRandomProducts(itemCount);
+  if (!selections || selections.length === 0) return;
+  
   sleep(1);
 
+  const orderItems = selections.map(sel => ({
+    productId: sel.product.id,
+    variantId: sel.variant.id,
+    quantity: 1, // Keep quantity at 1 for simplicity
+    price: sel.variant.price
+  }));
+
   const guestEmail = `guest-${__VU}-${__ITER}@test.com`;
-  const orderPayload = JSON.stringify({
-    guestName: "Guest User", guestEmail: guestEmail, phone: "555-555-5555",
+  const orderPayload = JSON.stringify({ 
+    guestName: "Guest User",
+    guestEmail: guestEmail,
+    phone: "555-555-5555",
     shippingAddress: { street: "123 Guest St", city: "Guestville", postalCode: "54321", country: "Containerland" },
     paymentMethod: "CASH_ON_DELIVERY",
-    items: [{ productId: product.id, variantId: variant.id, quantity: 1, price: variant.price }]
+    items: orderItems,
+    overrideCreatedAt: getRandomPastDateISO()
   });
   const headers = { 'Content-Type': 'application/json' };
   const orderRes = http.post(`${baseUrl}/orders`, orderPayload, { headers });
-  check(orderRes, { 'Guest Buyer: Step 2 - POST /orders is 201': (r) => r.status === 201 });
+  check(orderRes, { 'Guest Buyer: POST /orders is 201': (r) => r.status === 201 });
 }
 
 export function registeredBuyer(data) {
   if (!data.users || data.users.length === 0) return;
 
+  const itemCount = Math.floor(Math.random() * 3) + 1; // 1, 2, or 3 items
+  const selections = getRandomProducts(itemCount);
+  if (!selections || selections.length === 0) return;
+
   const randomUser = data.users[Math.floor(Math.random() * data.users.length)];
   const loginPayload = JSON.stringify({ email: randomUser.email, password: randomUser.password });
   const headers = { 'Content-Type': 'application/json' };
-
+  
   const loginRes = http.post(`${baseUrl}/auth/login`, loginPayload, { headers });
   if (!check(loginRes, { 'RegisteredBuyer: Step 1 - Login is 200': (r) => r.status === 200 })) return;
-
+  
   const authToken = loginRes.json().token;
   const authHeaders = { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' };
-
-  // Use the auth headers to fetch products
-  const prodRes = http.get(`${baseUrl}/products?page=1&limit=20`, { headers: authHeaders });
-  if (!check(prodRes, { 'RegisteredBuyer: Step 2 - Get Products is 200': (r) => r.status === 200 })) return;
-
-  let product, variant;
-  try {
-    const productsData = prodRes.json().data;
-    if (productsData.length === 0) return;
-    product = productsData[Math.floor(Math.random() * productsData.length)];
-    if (!product.variants || product.variants.length === 0) return;
-    variant = product.variants[Math.floor(Math.random() * product.variants.length)];
-  } catch (e) { return; }
-
+  
   sleep(1);
 
-  const orderPayload = JSON.stringify({
+  const orderItems = selections.map(sel => ({
+    productId: sel.product.id,
+    variantId: sel.variant.id,
+    quantity: 1,
+    price: sel.variant.price
+  }));
+
+  const orderPayload = JSON.stringify({ 
     phone: "555-555-5555",
     shippingAddress: { street: "123 Registered St", city: "Userville", postalCode: "12345", country: "Containerland" },
     paymentMethod: "CREDIT_CARD",
-    items: [{ productId: product.id, variantId: variant.id, quantity: 1, price: variant.price }]
+    items: orderItems,
+    overrideCreatedAt: getRandomPastDateISO()
   });
 
   const orderRes = http.post(`${baseUrl}/orders`, orderPayload, { headers: authHeaders });
-  check(orderRes, { 'Registered Buyer: Step 3 - POST /orders is 201': (r) => r.status === 201 });
+  check(orderRes, { 'Registered Buyer: POST /orders is 201': (r) => r.status === 201 });
 }
 
 // ==============================================================================
@@ -117,20 +174,48 @@ export function registeredBuyer(data) {
 export const options = {
   scenarios: {
     window_shoppers: {
-      executor: 'ramping-vus', exec: 'windowShopper',
-      startVUs: 0, stages: [ { duration: '30s', target: 40 }, { duration: '2m', target: 40 }, { duration: '30s', target: 0 } ],
+      executor: 'ramping-vus',
+      exec: 'windowShopper',
+      startVUs: 0,
+      stages: [
+        { duration: '30s', target: 40 },
+        { duration: '2m', target: 40 },
+        { duration: '30s', target: 0 },
+      ],
+      gracefulRampDown: '30s',
     },
     mission_customers: {
-      executor: 'ramping-vus', exec: 'missionCustomer',
-      startVUs: 0, stages: [ { duration: '30s', target: 15 }, { duration: '2m', target: 15 }, { duration: '30s', target: 0 } ],
+      executor: 'ramping-vus',
+      exec: 'missionCustomer',
+      startVUs: 0,
+      stages: [
+        { duration: '30s', target: 15 },
+        { duration: '2m', target: 15 },
+        { duration: '30s', target: 0 },
+      ],
+      gracefulRampDown: '30s',
     },
     guest_buyers: {
-      executor: 'ramping-vus', exec: 'guestBuyer',
-      startVUs: 0, stages: [ { duration: '30s', target: 3 }, { duration: '2m', target: 3 }, { duration: '30s', target: 0 } ],
+      executor: 'ramping-vus',
+      exec: 'guestBuyer',
+      startVUs: 0,
+      stages: [
+        { duration: '30s', target: 3 },
+        { duration: '2m', target: 3 },
+        { duration: '30s', target: 0 },
+      ],
+      gracefulRampDown: '30s',
     },
     registered_buyers: {
-      executor: 'ramping-vus', exec: 'registeredBuyer',
-      startVUs: 0, stages: [ { duration: '30s', target: 2 }, { duration: '2m', target: 2 }, { duration: '30s', target: 0 } ],
+      executor: 'ramping-vus',
+      exec: 'registeredBuyer',
+      startVUs: 0,
+      stages: [
+        { duration: '30s', target: 2 },
+        { duration: '2m', target: 2 },
+        { duration: '30s', target: 0 },
+      ],
+      gracefulRampDown: '30s',
     },
   },
   thresholds: {

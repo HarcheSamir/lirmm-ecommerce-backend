@@ -16,9 +16,6 @@ const client = new Client({
     sniffOnConnectionFault: false
 });
 
-// =================================================================
-// YOUR ORIGINAL, UNTOUCHED SETTINGS AND MAPPINGS OBJECT
-// =================================================================
 const indexSettingsAndMappings = {
     settings: {
         analysis: {
@@ -43,10 +40,10 @@ const indexSettingsAndMappings = {
             isActive: { type: "boolean" },
             createdAt: { type: "date" },
             updatedAt: { type: "date" },
-            averageRating: { type: "half_float" }, 
-            reviewCount: { type: "integer" }, 
+            averageRating: { type: "half_float" },
+            reviewCount: { type: "integer" },
             category_names: { type: "text", analyzer: "default_analyzer" },
-            category_slugs: { type: "keyword" },
+            category_slugs: { type: "keyword" }, // This is the critical line
             variants: {
                 type: "nested",
                 properties: {
@@ -71,29 +68,35 @@ const indexSettingsAndMappings = {
     }
 };
 
-const ensureIndexExists = async () => {
+// =================================================================
+// THIS IS THE NEW, MORE ROBUST FUNCTION
+// It will DELETE the index if it exists to guarantee the mapping is correct.
+// =================================================================
+const ensureIndexIsCorrect = async () => {
     const indexName = PRODUCT_INDEX;
+    console.log(`[Search Service] Ensuring index "${indexName}" has the correct mapping...`);
+    
     try {
         const existsResponse = await client.indices.exists({ index: indexName });
-        if (!existsResponse) {
-             console.log(`[Search Service] Index "${indexName}" does not exist. Creating with settings/mappings...`);
-             await client.indices.create({
-                 index: indexName,
-                 body: indexSettingsAndMappings // Uses your full object here
-             });
-             console.log(`[Search Service] Index "${indexName}" created successfully.`);
-        } else {
-             console.log(`[Search Service] Index "${indexName}" already exists.`);
+
+        if (existsResponse) {
+            console.log(`[Search Service] Index "${indexName}" exists. Deleting to ensure correct mapping.`);
+            await client.indices.delete({ index: indexName });
+            console.log(`[Search Service] Index "${indexName}" deleted.`);
         }
+
+        console.log(`[Search Service] Creating index "${indexName}" with an up-to-date mapping...`);
+        await client.indices.create({
+            index: indexName,
+            body: indexSettingsAndMappings
+        });
+        console.log(`[Search Service] Index "${indexName}" created successfully.`);
+
     } catch (error) {
         const errorDetails = error.meta?.body?.error ? JSON.stringify(error.meta.body.error) : error.message;
-        console.error(`[Search Service] Error during index check/creation for "${indexName}": ${errorDetails}`);
-        // This logic correctly handles the race condition where another service creates the index between our check and our create call
-        if (!(error.meta?.body?.error?.type === 'resource_already_exists_exception')) {
-             throw error;
-        } else {
-             console.warn(`[Search Service] Caught 'resource_already_exists_exception' for "${indexName}", proceeding as index is now present.`);
-        }
+        console.error(`[Search Service] CRITICAL: Error during index recreation for "${indexName}": ${errorDetails}`);
+        // If we fail here, the service is in a bad state, so we should crash.
+        throw error;
     }
 };
 
@@ -101,25 +104,20 @@ const connectClient = async (maxRetries = 15, retryDelayMs = 5000) => {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             console.log(`[Search Service] Attempt ${attempt}/${maxRetries}: Pinging Elasticsearch at ${ELASTICSEARCH_NODE}...`);
-            const isConnected = await client.ping();
-            if (!isConnected) {
-                 throw new Error('Elasticsearch ping returned falsy value');
-            }
+            await client.ping();
             console.log(`[Search Service] Elasticsearch ping successful on attempt ${attempt}.`);
             
-            // Now that we're connected, ensure the index is ready
-            await ensureIndexExists();
+            // Now that we're connected, forcibly create the index with the correct mapping.
+            await ensureIndexIsCorrect();
             
             console.log('[Search Service] Elasticsearch client setup complete.');
-            return; // Success, exit the loop and function
+            return; // Success
         } catch (error) {
-            console.error(`[Search Service] Attempt ${attempt}/${maxRetries}: Elasticsearch connection/setup failed: ${error.message}`);
-            
+            console.error(`[Search Service] Attempt ${attempt}/${maxRetries}: Connection/setup failed: ${error.message}`);
             if (attempt === maxRetries) {
-                console.error(`[Search Service] All ${maxRetries} attempts to connect to Elasticsearch failed. Giving up.`);
+                console.error(`[Search Service] All ${maxRetries} attempts failed. Giving up.`);
                 throw error; // Crash the pod after the last attempt
             }
-            
             console.log(`[Search Service] Retrying in ${retryDelayMs / 1000} seconds...`);
             await new Promise(resolve => setTimeout(resolve, retryDelayMs));
         }
