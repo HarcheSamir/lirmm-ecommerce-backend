@@ -1,5 +1,4 @@
-// This is the final, truly idempotent application pipeline.
-// It detects changes from both git AND the cluster state.
+// This is the final, syntactically correct, idempotent application pipeline.
 pipeline {
     agent { label 'wsl' }
 
@@ -15,20 +14,15 @@ pipeline {
             steps {
                 script {
                     echo "--- Detecting services that require an update ---"
-                    env.SERVICES_TO_UPDATE = '' // This will hold our final list
+                    env.SERVICES_TO_UPDATE = '' 
 
-                    // A Set automatically handles duplicates for us
                     def servicesToUpdateSet = new HashSet<String>()
-
                     def allServices = [
                         'api-gateway', 'auth-service', 'product-service', 'image-service',
                         'search-service', 'cart-service', 'order-service', 'review-service',
                         'payment-service', 'stats-service'
                     ]
 
-                    // =======================================================
-                    // CHECK 1: What changed in Git?
-                    // =======================================================
                     echo "--- [1/2] Checking for code changes in Git... ---"
                     def changedFiles = ''
                     try {
@@ -48,20 +42,15 @@ pipeline {
                         }
                     }
 
-                    // =======================================================
-                    // CHECK 2: What is missing or not ready in Kubernetes?
-                    // =======================================================
                     echo "--- [2/2] Checking for missing or failed deployments in Kubernetes... ---"
                     def runningDeployments = []
                     try {
-                        // Get the names of all deployments in the namespace
                         def deploymentNames = sh(returnStdout: true, script: "kubectl get deployment -n ${env.APP_NAMESPACE} -o jsonpath='{.items[*].metadata.name}'").trim()
                         if (deploymentNames) {
                             runningDeployments = deploymentNames.split(' ')
                         }
                     } catch (any) {
-                        echo "Could not get deployments from namespace '${env.APP_NAMESPACE}'. It might not exist. Assuming all services are missing."
-                        // No need to do anything, the list is already empty
+                        echo "Could not get deployments from namespace '${env.APP_NAMESPACE}'. Assuming all services are missing."
                     }
                     
                     allServices.each { service ->
@@ -72,9 +61,6 @@ pipeline {
                         }
                     }
 
-                    // =======================================================
-                    // Final Result
-                    // =======================================================
                     if (!servicesToUpdateSet.isEmpty()) {
                         echo "--- FINAL LIST of services to update: ${servicesToUpdateSet.join(', ')} ---"
                         env.SERVICES_TO_UPDATE = servicesToUpdateSet.join(' ')
@@ -86,7 +72,6 @@ pipeline {
         }
 
         stage('Build & Load Updated Images') {
-            // This stage now runs if any service needs an update for any reason
             when { expression { env.SERVICES_TO_UPDATE } }
             steps {
                 script {
@@ -125,14 +110,23 @@ pipeline {
             }
         }
     }
+
+    // =================================================================
+    // KEY CHANGE: The `if/else` logic is now correctly wrapped in a `script` block.
+    // =================================================================
     post {
         success {
-            echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
-            if (env.SERVICES_TO_UPDATE) {
-                echo "Successfully updated services: ${env.SERVICES_TO_UPDATE}"
-            } else {
-                echo "No services required an update."
+            script {
+                echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
+                if (env.SERVICES_TO_UPDATE) {
+                    echo "Successfully updated services: ${env.SERVICES_TO_UPDATE}"
+                } else {
+                    echo "No services required an update."
+                }
             }
+        }
+        failure {
+            echo "--- APPLICATION DEPLOYMENT FAILED ---"
         }
     }
 }
