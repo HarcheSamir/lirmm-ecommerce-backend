@@ -70,13 +70,16 @@ const createManyProducts = async (req, res, next) => {
         if (productsData.find(p => !p.sku || !p.name)) {
             return res.status(400).json({ message: `All products in the array must have 'sku' and 'name'.` });
         }
+
+        const creationDate = new Date('2022-10-17T00:00:00Z'); // fixed creation date
+
         let createdProductSummaries = [];
         await prisma.$transaction(async (tx) => {
             for (const productData of productsData) {
-                const { sku, name, description, isActive, variants: inputVariants, categoryIds, categorySlugs, images: inputImages }= productData;
+                const { sku, name, description, isActive, variants: inputVariants, categoryIds, categorySlugs, images: inputImages } = productData;
                 let finalCategoryIds = categoryIds || [];
                 if (categorySlugs && categorySlugs.length > 0) {
-                    const foundCategories = await tx.category.findMany({ where: { slug: { in: categorySlugs } }, select: { id: true,slug: true } });
+                    const foundCategories = await tx.category.findMany({ where: { slug: { in: categorySlugs } }, select: { id: true, slug: true } });
                     if (foundCategories.length !== categorySlugs.length) {
                         const notFoundSlugs = categorySlugs.filter(slug => !foundCategories.find(cat => cat.slug === slug));
                         throw { statusCode: 400, message: `The following category slugs do not exist: ${notFoundSlugs.join(', ')}` };
@@ -84,33 +87,71 @@ const createManyProducts = async (req, res, next) => {
                     finalCategoryIds = [...new Set([...finalCategoryIds, ...foundCategories.map(cat => cat.id)])];
                 }
                 await validateLeafCategories(tx, finalCategoryIds);
-                const newProduct = await tx.product.create({ data: { sku, name, description, isActive } });
+
+                const newProduct = await tx.product.create({
+                    data: { sku, name, description, isActive, createdAt: creationDate }
+                });
+
                 createdProductSummaries.push({ id: newProduct.id, sku: newProduct.sku });
+
                 if (finalCategoryIds.length > 0) {
-                    await tx.productCategory.createMany({ data: finalCategoryIds.map(catId => ({ productId: newProduct.id, categoryId: catId })), skipDuplicates: true });
+                    await tx.productCategory.createMany({
+                        data: finalCategoryIds.map(catId => ({ productId: newProduct.id, categoryId: catId })),
+                        skipDuplicates: true
+                    });
                 }
+
                 if (inputVariants && inputVariants.length > 0) {
                     const createdVariants = await Promise.all(
                         inputVariants.map(variant => tx.variant.create({
-                            data: { productId: newProduct.id, attributes: variant.attributes || {}, price: variant.price, costPrice:variant.costPrice, stockQuantity: 0, lowStockThreshold: variant.lowStockThreshold, }
+                            data: {
+                                productId: newProduct.id,
+                                attributes: variant.attributes || {},
+                                price: variant.price,
+                                costPrice: variant.costPrice,
+                                stockQuantity: 0,
+                                lowStockThreshold: variant.lowStockThreshold,
+                                createdAt: creationDate
+                            }
                         }))
                     );
+
                     const initialStockMovements = [];
                     for (let i = 0; i < inputVariants.length; i++) {
                         if (inputVariants[i].initialStockQuantity && inputVariants[i].initialStockQuantity > 0) {
-                            initialStockMovements.push({ variantId: createdVariants[i].id, changeQuantity: inputVariants[i].initialStockQuantity, type: 'INITIAL_STOCK', reason: 'Product Creation Initial Stock' });
-                            await tx.variant.update({ where: { id: createdVariants[i].id }, data: { stockQuantity: inputVariants[i].initialStockQuantity } });
+                            initialStockMovements.push({
+                                variantId: createdVariants[i].id,
+                                changeQuantity: inputVariants[i].initialStockQuantity,
+                                type: 'INITIAL_STOCK',
+                                reason: 'Product Creation Initial Stock',
+                                timestamp: creationDate
+                            });
+                            await tx.variant.update({
+                                where: { id: createdVariants[i].id },
+                                data: { stockQuantity: inputVariants[i].initialStockQuantity }
+                            });
                         }
                     }
                     if (initialStockMovements.length > 0) {
                         await tx.stockMovement.createMany({ data: initialStockMovements });
                     }
                 }
+
                 if (inputImages && inputImages.length > 0) {
-                    await tx.productImage.createMany({ data: inputImages.map(img => ({ productId: newProduct.id, imageUrl: img.imageUrl, altText: img.altText, isPrimary: img.isPrimary || false, order: img.order })) });
+                    await tx.productImage.createMany({
+                        data: inputImages.map(img => ({
+                            productId: newProduct.id,
+                            imageUrl: img.imageUrl,
+                            altText: img.altText,
+                            isPrimary: img.isPrimary || false,
+                            order: img.order,
+                            createdAt: creationDate
+                        }))
+                    });
                 }
             }
         });
+
         if (createdProductSummaries.length > 0) {
             for (const summary of createdProductSummaries) {
                 const kafkaPayload = await fetchAndFormatProductForKafka(summary.id);
@@ -125,6 +166,7 @@ const createManyProducts = async (req, res, next) => {
         next(err);
     }
 };
+
 
 const createProduct = async (req, res, next) => {
     try {
