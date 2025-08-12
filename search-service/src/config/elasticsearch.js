@@ -16,6 +16,9 @@ const client = new Client({
     sniffOnConnectionFault: false
 });
 
+// =================================================================
+// YOUR ORIGINAL, UNTOUCHED SETTINGS AND MAPPINGS OBJECT
+// =================================================================
 const indexSettingsAndMappings = {
     settings: {
         analysis: {
@@ -76,50 +79,48 @@ const ensureIndexExists = async () => {
              console.log(`[Search Service] Index "${indexName}" does not exist. Creating with settings/mappings...`);
              await client.indices.create({
                  index: indexName,
-                 body: indexSettingsAndMappings
+                 body: indexSettingsAndMappings // Uses your full object here
              });
              console.log(`[Search Service] Index "${indexName}" created successfully.`);
+        } else {
+             console.log(`[Search Service] Index "${indexName}" already exists.`);
         }
     } catch (error) {
         const errorDetails = error.meta?.body?.error ? JSON.stringify(error.meta.body.error) : error.message;
         console.error(`[Search Service] Error during index check/creation for "${indexName}": ${errorDetails}`);
+        // This logic correctly handles the race condition where another service creates the index between our check and our create call
         if (!(error.meta?.body?.error?.type === 'resource_already_exists_exception')) {
              throw error;
         } else {
-             console.warn(`[Search Service] Caught 'resource_already_exists_exception' for "${indexName}", proceeding.`);
+             console.warn(`[Search Service] Caught 'resource_already_exists_exception' for "${indexName}", proceeding as index is now present.`);
         }
     }
 };
 
-const connectClient = async (maxRetries = 5, retryDelayMs = 5000) => {
+const connectClient = async (maxRetries = 15, retryDelayMs = 5000) => {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             console.log(`[Search Service] Attempt ${attempt}/${maxRetries}: Pinging Elasticsearch at ${ELASTICSEARCH_NODE}...`);
             const isConnected = await client.ping();
             if (!isConnected) {
                  throw new Error('Elasticsearch ping returned falsy value');
-             }
+            }
             console.log(`[Search Service] Elasticsearch ping successful on attempt ${attempt}.`);
+            
+            // Now that we're connected, ensure the index is ready
             await ensureIndexExists();
+            
             console.log('[Search Service] Elasticsearch client setup complete.');
-            return;
+            return; // Success, exit the loop and function
         } catch (error) {
-            const isRetryableNetworkError =
-                 error.message?.includes('ECONNREFUSED') ||
-                 error.message?.includes('ETIMEDOUT') ||
-                 error.constructor?.name === 'ConnectionError' ||
-                 error.constructor?.name === 'TimeoutError';
-            const errorMessage = error.message || 'Unknown Elasticsearch connection error';
-            console.error(`[Search Service] Attempt ${attempt}/${maxRetries}: Elasticsearch connection/setup failed: ${errorMessage}`);
+            console.error(`[Search Service] Attempt ${attempt}/${maxRetries}: Elasticsearch connection/setup failed: ${error.message}`);
+            
             if (attempt === maxRetries) {
                 console.error(`[Search Service] All ${maxRetries} attempts to connect to Elasticsearch failed. Giving up.`);
-                throw error;
+                throw error; // Crash the pod after the last attempt
             }
-             if (!isRetryableNetworkError) {
-                 console.warn('[Search Service] Elasticsearch error does not seem transient. Stopping retry attempts.');
-                 throw error;
-             }
-            console.log(`[Search Service] Retrying Elasticsearch connection in ${retryDelayMs / 1000} seconds...`);
+            
+            console.log(`[Search Service] Retrying in ${retryDelayMs / 1000} seconds...`);
             await new Promise(resolve => setTimeout(resolve, retryDelayMs));
         }
     }
