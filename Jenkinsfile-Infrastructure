@@ -1,5 +1,5 @@
-// This is the MODIFIED infrastructure pipeline.
-// It keeps the cluster running but refreshes all data services for a clean state.
+// This is your original, working pipeline structure,
+// with the one addition needed to refresh the infrastructure services.
 pipeline {
     agent { label 'wsl' }
 
@@ -11,7 +11,7 @@ pipeline {
     }
 
     stages {
-        stage('Ensure Cluster and Istio are Running') {
+        stage('Setup Kind Cluster and Istio') {
             steps {
                 script {
                     def publicImages = [
@@ -22,43 +22,41 @@ pipeline {
                         'redis:7.2-alpine'
                     ]
 
-                    echo "--- Pulling public images to the agent (for the first run) ---"
+                    echo "--- Pulling heavy public images to the agent ---"
                     publicImages.each { image ->
-                        // Using --quiet to reduce log noise on subsequent runs
-                        sh "docker pull --quiet ${image}"
+                        sh "docker pull ${image}"
                     }
 
-                    echo "--- Running the idempotent setup script to create the cluster ONLY IF needed ---"
+                    echo "--- Running the main setup script to create the cluster and install Istio ---"
                     withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
                         sh "chmod +x ./kind-deployment/setup-kind.sh"
                         sh "./kind-deployment/setup-kind.sh"
                     }
 
-                    echo "--- Loading images into Kind (this is fast if images already exist) ---"
+                    echo "--- Loading heavy images into Kind (YOUR ORIGINAL LOGIC) ---"
                     publicImages.each { image ->
+                        echo "Loading: ${image}"
                         sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME}"
                     }
                 }
             }
         }
-        // =================================================================
-        // KEY CHANGE: This stage now refreshes deployments instead of just creating them.
-        // =================================================================
+        //
+        // KEY CHANGE: Added "Refresh" to the name and one 'sh' command to restart deployments.
+        //
         stage('Deploy & Refresh Infrastructure Services') {
             steps {
                 script {
                     echo "--- Ensuring namespace '${env.APP_NAMESPACE}' exists ---"
                     sh "kubectl create namespace ${env.APP_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -"
 
-                    echo "--- Applying ALL infrastructure manifests to ensure objects are created/updated ---"
+                    echo "--- Applying ALL infrastructure manifests ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
 
-                    echo "--- Forcing rollout restart of ALL infrastructure deployments to get a fresh data state ---"
-                    // This command targets all deployments with a 'component' label.
-                    // Restarting the pods clears their ephemeral emptyDir volumes.
+                    echo "--- Forcing rollout restart to get a fresh data state ---"
                     sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l 'component in (zookeeper, kafka, elasticsearch, redis, database)'"
 
-                    echo "--- Waiting for infrastructure to become available after restart ---"
+                    echo "--- Waiting for infrastructure to become available (YOUR ORIGINAL LOGIC) ---"
                     sh "kubectl wait --for=condition=Available deployment -l component=zookeeper -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=kafka -n ${env.APP_NAMESPACE} --timeout=5m"
                     sh "kubectl wait --for=condition=Available deployment -l component=elasticsearch -n ${env.APP_NAMESPACE} --timeout=15m"
@@ -70,12 +68,7 @@ pipeline {
     }
     post {
         success {
-            echo "--- INFRASTRUCTURE DEPLOYMENT & REFRESH SUCCEEDED ---"
-            echo "--- All databases and stateful services have been reset to a clean state. ---"
-            echo "--- You can now run the application pipeline to deploy your code. ---"
-        }
-        failure {
-            echo "--- INFRASTRUCTURE DEPLOYMENT FAILED ---"
+            echo "--- INFRASTRUCTURE DEPLOYMENT SUCCEEDED ---"
         }
     }
 }
