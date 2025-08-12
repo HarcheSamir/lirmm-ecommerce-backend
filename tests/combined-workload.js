@@ -28,90 +28,79 @@ export function setup() {
 }
 
 // ==============================================================================
-//  HELPER FUNCTION TO SELECT A RANDOM PRODUCT
-// ==============================================================================
-function getRandomProduct() {
-  // Fetch a page of 20 products to choose from.
-  const prodRes = http.get(`${baseUrl}/products?page=1&limit=20`);
-  if (prodRes.status !== 200 || !prodRes.body) return null;
-  
-  try {
-    const productsData = prodRes.json().data;
-    if (productsData.length === 0) return null;
-
-    // Pick a random product from the list.
-    const product = productsData[Math.floor(Math.random() * productsData.length)];
-
-    // Ensure the chosen product has variants we can buy.
-    if (product.variants && product.variants.length > 0) {
-      // Pick a random variant of that product.
-      const variant = product.variants[Math.floor(Math.random() * product.variants.length)];
-      return { product, variant };
-    }
-    return null;
-  } catch(e) { 
-    return null;
-  }
-}
-
-
-// ==============================================================================
 //  USER PERSONA LOGIC
 // ==============================================================================
 
 export function windowShopper() {
-  http.get(`${baseUrl}/products?page=1&limit=12`);
+  const res = http.get(`${baseUrl}/products?page=1&limit=12`);
+  check(res, { 'WindowShopper: GET /products is 200': (r) => r.status === 200 });
   sleep(2);
 }
 
 export function missionCustomer() {
   const searchTerms = ['computer', 'shirt', 'monitor', 'keyboard'];
   const randomTerm = searchTerms[Math.floor(Math.random() * searchTerms.length)];
-  http.get(`${baseUrl}/search/products?q=${randomTerm}&limit=20`);
+  const res = http.get(`${baseUrl}/search/products?q=${randomTerm}&limit=20`);
+  check(res, { 'MissionCustomer: GET /search is 200': (r) => r.status === 200 });
   sleep(3);
 }
 
 export function guestBuyer() {
-  const selection = getRandomProduct();
-  if (!selection) return;
-  const { product, variant } = selection;
-  
+  const prodRes = http.get(`${baseUrl}/products?page=1&limit=20`);
+  if (!check(prodRes, { 'GuestBuyer: Step 1 - Get Products is 200': (r) => r.status === 200 })) return;
+
+  let product, variant;
+  try {
+    const productsData = prodRes.json().data;
+    if (productsData.length === 0) return;
+    product = productsData[Math.floor(Math.random() * productsData.length)];
+    if (!product.variants || product.variants.length === 0) return;
+    variant = product.variants[Math.floor(Math.random() * product.variants.length)];
+  } catch (e) { return; }
+
   sleep(1);
 
   const guestEmail = `guest-${__VU}-${__ITER}@test.com`;
-  const orderPayload = JSON.stringify({ 
-    guestName: "Guest User",
-    guestEmail: guestEmail,
-    phone: "555-555-5555",
+  const orderPayload = JSON.stringify({
+    guestName: "Guest User", guestEmail: guestEmail, phone: "555-555-5555",
     shippingAddress: { street: "123 Guest St", city: "Guestville", postalCode: "54321", country: "Containerland" },
     paymentMethod: "CASH_ON_DELIVERY",
     items: [{ productId: product.id, variantId: variant.id, quantity: 1, price: variant.price }]
   });
   const headers = { 'Content-Type': 'application/json' };
   const orderRes = http.post(`${baseUrl}/orders`, orderPayload, { headers });
-  check(orderRes, { 'Guest Buyer: POST /orders | status is 201': (r) => r.status === 201 });
+  check(orderRes, { 'Guest Buyer: Step 2 - POST /orders is 201': (r) => r.status === 201 });
 }
 
 export function registeredBuyer(data) {
   if (!data.users || data.users.length === 0) return;
 
-  const selection = getRandomProduct();
-  if (!selection) return;
-  const { product, variant } = selection;
-
   const randomUser = data.users[Math.floor(Math.random() * data.users.length)];
   const loginPayload = JSON.stringify({ email: randomUser.email, password: randomUser.password });
   const headers = { 'Content-Type': 'application/json' };
-  
+
   const loginRes = http.post(`${baseUrl}/auth/login`, loginPayload, { headers });
-  if (loginRes.status !== 200 || !loginRes.body) return;
-  
+  if (!check(loginRes, { 'RegisteredBuyer: Step 1 - Login is 200': (r) => r.status === 200 })) return;
+
   const authToken = loginRes.json().token;
   const authHeaders = { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' };
-  
+
+  // Use the auth headers to fetch products
+  const prodRes = http.get(`${baseUrl}/products?page=1&limit=20`, { headers: authHeaders });
+  if (!check(prodRes, { 'RegisteredBuyer: Step 2 - Get Products is 200': (r) => r.status === 200 })) return;
+
+  let product, variant;
+  try {
+    const productsData = prodRes.json().data;
+    if (productsData.length === 0) return;
+    product = productsData[Math.floor(Math.random() * productsData.length)];
+    if (!product.variants || product.variants.length === 0) return;
+    variant = product.variants[Math.floor(Math.random() * product.variants.length)];
+  } catch (e) { return; }
+
   sleep(1);
 
-  const orderPayload = JSON.stringify({ 
+  const orderPayload = JSON.stringify({
     phone: "555-555-5555",
     shippingAddress: { street: "123 Registered St", city: "Userville", postalCode: "12345", country: "Containerland" },
     paymentMethod: "CREDIT_CARD",
@@ -119,7 +108,7 @@ export function registeredBuyer(data) {
   });
 
   const orderRes = http.post(`${baseUrl}/orders`, orderPayload, { headers: authHeaders });
-  check(orderRes, { 'Registered Buyer: POST /orders | status is 201': (r) => r.status === 201 });
+  check(orderRes, { 'Registered Buyer: Step 3 - POST /orders is 201': (r) => r.status === 201 });
 }
 
 // ==============================================================================
