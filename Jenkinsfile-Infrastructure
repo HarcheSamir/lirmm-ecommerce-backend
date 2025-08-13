@@ -16,8 +16,10 @@ pipeline {
             steps {
                 script {
                     def publicImages = [
-                        'postgres:15-alpine', 'confluentinc/cp-zookeeper:7.3.2',
-                        'confluentinc/cp-kafka:7.3.2', 'docker.elastic.co/elasticsearch:elasticsearch:8.11.1',
+                        'postgres:15-alpine',
+                        'confluentinc/cp-zookeeper:7.3.2',
+                        'confluentinc/cp-kafka:7.3.2',
+                        'docker.elastic.co/elasticsearch/elasticsearch:8.11.1', // Typo corrected here
                         'redis:7.2-alpine'
                     ]
                     sh "chmod +x ./kind-deployment/setup-kind.sh"
@@ -47,7 +49,7 @@ pipeline {
         stage('Wait for Infrastructure to be Healthy') {
             steps {
                 script {
-                    echo "--- Waiting for infrastructure pods to become 'Available' (first check)... ---"
+                    echo "--- Waiting for infrastructure pods to become 'Available' (this is the first check)... ---"
                     sh "kubectl wait --for=condition=Available deployment -l 'component in (zookeeper, kafka, elasticsearch, redis, database)' -n ${env.APP_NAMESPACE} --timeout=15m"
                     
                     echo "--- Actively polling Postgres databases until they accept connections (second, deeper check)... ---"
@@ -61,12 +63,23 @@ pipeline {
                                 --namespace ${env.APP_NAMESPACE} \\
                                 --image=postgres:15-alpine \\
                                 --restart=Never -- \\
-                                sh -c 'pg_isready -h ${dbSvc} -p 5432 -U postgres || exit 1'
+                                sh -c 'while ! pg_isready -h ${dbSvc} -p 5432 -U postgres; do sleep 5; done'
                             """
-                            // We don't need a sleep inside retry, it handles backoff.
                         }
                         echo "${dbSvc} is ready."
                     }
+                    
+                    echo "--- Actively polling Elasticsearch until it is healthy ---"
+                    retry(24) {
+                        sh """
+                        kubectl run es-health-check --rm=true --attach=true -i \\
+                            --namespace ${env.APP_NAMESPACE} \\
+                            --image=curlimages/curl:latest \\
+                            --restart=Never -- \\
+                            -s -f http://elasticsearch-svc:9200/_cluster/health?wait_for_status=yellow&timeout=5s
+                        """
+                    }
+                    echo "Elasticsearch is healthy."
                     
                     echo "--- Infrastructure is confirmed to be healthy and ready. ---"
                 }

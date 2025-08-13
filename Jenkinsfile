@@ -1,5 +1,5 @@
 // This is the final, correct, and intelligent application pipeline.
-// It builds only what's needed and finishes with a refresh to handle state wipes.
+// It builds only what's needed and finishes with a full application refresh.
 pipeline {
     agent { label 'wsl' }
 
@@ -12,13 +12,11 @@ pipeline {
     }
 
     stages {
-        stage('Detect Required Updates (Git & Kubernetes)') {
+        stage('Detect & Build Changed Services') {
             steps {
                 script {
-                    echo "--- Detecting services that require an update ---"
-                    env.SERVICES_TO_BUILD = '' // Services with code changes
-                    
-                    def servicesToBuildSet = new HashSet<String>()
+                    echo "--- Detecting services with code changes ---"
+                    def servicesToBuild = new HashSet<String>()
                     def allServices = [
                         'api-gateway', 'auth-service', 'product-service', 'image-service',
                         'search-service', 'cart-service', 'order-service', 'review-service',
@@ -26,57 +24,44 @@ pipeline {
                     ]
 
                     // Check Git for code changes. This is the only check that triggers a build.
-                    echo "--- Checking for code changes in Git... ---"
                     try {
                         def changedFiles = sh(returnStdout: true, script: 'git diff --name-only HEAD~1 HEAD').trim()
                         if (changedFiles) {
                             changedFiles.split('\n').each { filePath ->
                                 def serviceDir = filePath.tokenize('/')[0]
                                 if (allServices.contains(serviceDir)) {
-                                    echo "Git change detected in: ${serviceDir}"
-                                    servicesToBuildSet.add(serviceDir)
+                                    servicesToBuild.add(serviceDir)
                                 }
                             }
                         }
                     } catch (any) {
                         echo "Could not get git diff, assuming all services are new and need to be built."
-                        servicesToBuildSet.addAll(allServices)
+                        servicesToBuild.addAll(allServices)
                     }
 
-                    if (!servicesToBuildSet.isEmpty()) {
-                        env.SERVICES_TO_BUILD = servicesToBuildSet.join(' ')
-                        echo "--- Services to BUILD: ${env.SERVICES_TO_BUILD} ---"
+                    if (!servicesToBuild.isEmpty()) {
+                        echo "--- Services to BUILD: ${servicesToBuild.join(', ')} ---"
+                        servicesToBuild.each { service ->
+                            echo "--- Building and loading image for changed service: ${service} ---"
+                            def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
+                            sh "docker build -t ${imageName} ./${service}"
+                            sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
+                        }
                     } else {
-                        echo "--- No code changes detected in any service directories. ---"
+                        echo "--- No code changes detected in any service directories. No images will be built. ---"
                     }
                 }
             }
         }
 
-        stage('Build & Load Changed Images') {
-            // This stage ONLY runs if there were code changes.
-            when { expression { env.SERVICES_TO_BUILD } }
-            steps {
-                script {
-                    def servicesToBuild = env.SERVICES_TO_BUILD.split(' ')
-                    servicesToBuild.each { service ->
-                        echo "--- Building and loading image for changed service: ${service} ---"
-                        def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
-                        sh "docker build -t ${imageName} ./${service}"
-                        sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
-                    }
-                }
-            }
-        }
-
-        // This final stage runs every time. It is the key to your "Hot Refresh" workflow.
-        // It ensures everything is running and correctly initialized.
+        // This final stage runs every time to handle your "Hot Refresh" workflow.
+        // It ensures everything is running and correctly initialized after a potential infra reset.
         stage('Deploy & Refresh All Application Services') {
             steps {
                 script {
                     echo "--- Applying ALL application manifests to ensure objects exist/are updated ---"
                     sh "kubectl apply -f ${env.APP_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
-                    sleep 10 // Give the API server a moment to process the apply
+                    sleep 15 // Give the API server a moment to process the apply and prevent race conditions.
 
                     echo "--- Restarting ALL application services to apply changes and run migrations/init ---"
                     // This is robust and non-hardcoded. It restarts anything with the right label.
