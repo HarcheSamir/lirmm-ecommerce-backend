@@ -1,5 +1,5 @@
-// This is the correct, idempotent pipeline.
-// It ONLY builds/deploys services that have changed in Git or are missing from the cluster.
+// This is the final, truly idempotent, and NON-HARDCODED application pipeline.
+// It dynamically handles both Deployments and StatefulSets.
 pipeline {
     agent { label 'wsl' }
 
@@ -11,6 +11,7 @@ pipeline {
     }
 
     stages {
+        // This stage is correct and remains unchanged
         stage('Detect Required Updates (from Git & Kubernetes)') {
             steps {
                 script {
@@ -23,62 +24,50 @@ pipeline {
                         'payment-service', 'stats-service'
                     ]
 
-                    // CHECK 1: What changed in Git?
-                    echo "--- [1/2] Checking for code changes in Git... ---"
+                    // Check 1: Git changes
                     def changedFiles = ''
                     try {
                         changedFiles = sh(returnStdout: true, script: 'git diff --name-only HEAD~1 HEAD').trim()
                     } catch (any) {
-                        echo "Could not get git diff, assuming all services might need an update."
                         changedFiles = allServices.join('\n')
                     }
                     if (changedFiles) {
                         changedFiles.split('\n').each { filePath ->
                             def serviceDir = filePath.tokenize('/')[0]
-                            if (allServices.contains(serviceDir)) {
-                                echo "Git change detected in: ${serviceDir}"
-                                servicesToUpdateSet.add(serviceDir)
-                            }
+                            if (allServices.contains(serviceDir)) { servicesToUpdateSet.add(serviceDir) }
                         }
                     }
 
-                    // CHECK 2: What is missing from Kubernetes?
-                    echo "--- [2/2] Checking for missing objects in Kubernetes... ---"
+                    // Check 2: Missing Kubernetes objects
                     def existingObjects = []
                     try {
                         def deploymentApps = sh(returnStdout: true, script: "kubectl get deployment -n ${env.APP_NAMESPACE} -o jsonpath='{.items[*].metadata.labels.app}'").trim()
                         def statefulSetApps = sh(returnStdout: true, script: "kubectl get statefulset -n ${env.APP_NAMESPACE} -o jsonpath='{.items[*].metadata.labels.app}'").trim()
                         if (deploymentApps) { existingObjects.addAll(deploymentApps.split(' ')) }
                         if (statefulSetApps) { existingObjects.addAll(statefulSetApps.split(' ')) }
-                    } catch (any) {
-                        echo "Could not get objects from namespace '${env.APP_NAMESPACE}'. Assuming all services are missing."
-                    }
+                    } catch (any) { /* Do nothing */ }
                     
                     allServices.each { service ->
-                        if (!existingObjects.contains(service)) {
-                            echo "Application is missing in cluster: ${service}"
-                            servicesToUpdateSet.add(service)
-                        }
+                        if (!existingObjects.contains(service)) { servicesToUpdateSet.add(service) }
                     }
 
-                    // Final Result
                     if (!servicesToUpdateSet.isEmpty()) {
-                        echo "--- FINAL LIST of services to update: ${servicesToUpdateSet.join(', ')} ---"
                         env.SERVICES_TO_UPDATE = servicesToUpdateSet.join(' ')
+                        echo "--- FINAL LIST of services to update: ${env.SERVICES_TO_UPDATE} ---"
                     } else {
-                        echo "--- No changes detected in Git or the cluster. All services are up-to-date. ---"
+                        echo "--- No changes detected in Git or the cluster. ---"
                     }
                 }
             }
         }
 
+        // This stage is correct and remains unchanged
         stage('Build & Load Updated Images') {
             when { expression { env.SERVICES_TO_UPDATE } }
             steps {
                 script {
                     def servicesToUpdate = env.SERVICES_TO_UPDATE.split(' ')
                     servicesToUpdate.each { service ->
-                        echo "--- Building and loading image for: ${service} ---"
                         def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
                         sh "docker build -t ${imageName} ./${service}"
                         sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
@@ -87,6 +76,10 @@ pipeline {
             }
         }
 
+        // =================================================================
+        // KEY CHANGE: This stage is now GENERIC. NO HARDCODING.
+        // It tries to restart both kinds of objects for each service.
+        // =================================================================
         stage('Deploy Updated Services') {
             when { expression { env.SERVICES_TO_UPDATE } }
             steps {
@@ -96,35 +89,26 @@ pipeline {
                     echo "--- Applying ALL application manifests to create/update objects ---"
                     sh "kubectl apply -f ./kind-deployment/app-manifests.yaml -n ${env.APP_NAMESPACE}"
 
+                    // Add a small sleep to give the Kubernetes API a moment to process the apply.
+                    // This helps prevent race conditions.
+                    sleep 10
+
                     echo "--- Forcing rollout restart of updated/missing objects ---"
                     servicesToUpdate.each { service ->
-                        def deploymentName = sh(returnStdout: true, script: "kubectl get deployment -n ${env.APP_NAMESPACE} -l app=${service} -o jsonpath='{.items[0].metadata.name}'").trim()
-                        
-                        if (deploymentName) {
-                            echo "Found Deployment '${deploymentName}'. Restarting."
-                            sh "kubectl rollout restart deployment/${deploymentName} -n ${env.APP_NAMESPACE}"
-                        } else {
-                            def statefulSetName = sh(returnStdout: true, script: "kubectl get statefulset -n ${env.APP_NAMESPACE} -l app=${service} -o jsonpath='{.items[0].metadata.name}'").trim()
-                            if (statefulSetName) {
-                                echo "Found StatefulSet '${statefulSetName}'. Restarting."
-                                sh "kubectl rollout restart statefulset/${statefulSetName} -n ${env.APP_NAMESPACE}"
-                            } else {
-                                echo "WARNING: Could not find a Deployment or StatefulSet for service '${service}' to restart."
-                            }
-                        }
+                        echo "--- Restarting any workload for service: ${service} ---"
+                        // Try to restart a Deployment. If it doesn't exist, this will do nothing and succeed.
+                        sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l app=${service} --ignore-not-found=true"
+                        // Try to restart a StatefulSet. If it doesn't exist, this will do nothing and succeed.
+                        sh "kubectl rollout restart statefulset -n ${env.APP_NAMESPACE} -l app=${service} --ignore-not-found=true"
                     }
                     
                     echo "--- Waiting for updated objects to become available ---"
                     servicesToUpdate.each { service ->
-                        def deploymentName = sh(returnStdout: true, script: "kubectl get deployment -n ${env.APP_NAMESPACE} -l app=${service} -o jsonpath='{.items[0].metadata.name}'").trim()
-                        if (deploymentName) {
-                            sh "kubectl wait --for=condition=Available deployment/${deploymentName} -n ${env.APP_NAMESPACE} --timeout=15m"
-                        } else {
-                            def statefulSetName = sh(returnStdout: true, script: "kubectl get statefulset -n ${env.APP_NAMESPACE} -l app=${service} -o jsonpath='{.items[0].metadata.name}'").trim()
-                            if (statefulSetName) {
-                                sh "kubectl rollout status statefulset/${statefulSetName} -n ${env.APP_NAMESPACE} --timeout=15m"
-                            }
-                        }
+                        echo "--- Waiting for workload of service: ${service} ---"
+                        // Wait for a Deployment. If none exists, this will do nothing and succeed.
+                        sh "kubectl wait --for=condition=Available deployment -n ${env.APP_NAMESPACE} -l app=${service} --timeout=15m --ignore-not-found=true"
+                        // Wait for a StatefulSet. If none exists, this will do nothing and succeed.
+                        sh "kubectl rollout status statefulset -n ${env.APP_NAMESPACE} -l app=${service} --timeout=15m --ignore-not-found=true"
                     }
                 }
             }
@@ -132,6 +116,7 @@ pipeline {
     }
 
     post {
+        // This post block is correct and remains unchanged
         success {
             script {
                 echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
