@@ -1,7 +1,6 @@
 # Node.js
 **/node_modules/
 **/package-lock.json
-
 # Logs
 **/logs/
 **/*.log
@@ -10,6 +9,7 @@
 # dotenv environment variables
 **/.env
 **/.env.*
+**/venv
 
 # Prisma
 **/prisma/migrations/

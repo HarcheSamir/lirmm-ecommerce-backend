@@ -12,7 +12,7 @@ const baseUrl = 'http://localhost:13000';
 export function setup() {
   console.log('--- Setting up registered test user pool ---');
   const userPool = [];
-  const userCount = 20;
+  const userCount = 100;
 
   for (let i = 0; i < userCount; i++) {
     const email = `testuser${i}@loadtest.com`;
@@ -178,8 +178,8 @@ export const options = {
       exec: 'windowShopper',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 40 },
-        { duration: '2m', target: 40 },
+        { duration: '30s', target: 50 },
+        { duration: '2m', target: 50 },
         { duration: '30s', target: 0 },
       ],
       gracefulRampDown: '30s',
@@ -189,8 +189,8 @@ export const options = {
       exec: 'missionCustomer',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 15 },
-        { duration: '2m', target: 15 },
+        { duration: '30s', target: 50 },
+        { duration: '2m', target: 50 },
         { duration: '30s', target: 0 },
       ],
       gracefulRampDown: '30s',
@@ -200,8 +200,8 @@ export const options = {
       exec: 'guestBuyer',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 3 },
-        { duration: '2m', target: 3 },
+        { duration: '30s', target: 50 },
+        { duration: '2m', target: 50 },
         { duration: '30s', target: 0 },
       ],
       gracefulRampDown: '30s',
@@ -211,8 +211,8 @@ export const options = {
       exec: 'registeredBuyer',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 2 },
-        { duration: '2m', target: 2 },
+        { duration: '30s', target: 50 },
+        { duration: '2m', target: 50 },
         { duration: '30s', target: 0 },
       ],
       gracefulRampDown: '30s',
