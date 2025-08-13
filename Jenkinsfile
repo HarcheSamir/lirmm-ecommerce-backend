@@ -1,5 +1,5 @@
-// This is the final, truly idempotent, and NON-HARDCODED application pipeline.
-// It dynamically handles both Deployments and StatefulSets.
+// This is the final, truly idempotent, and syntactically correct application pipeline.
+// It dynamically handles both Deployments and StatefulSets without hardcoding or invalid flags.
 pipeline {
     agent { label 'wsl' }
 
@@ -77,8 +77,8 @@ pipeline {
         }
 
         // =================================================================
-        // KEY CHANGE: This stage is now GENERIC. NO HARDCODING.
-        // It tries to restart both kinds of objects for each service.
+        // KEY CHANGE: This stage is now GENERIC and uses VALID commands.
+        // It checks for the existence of an object before trying to act on it.
         // =================================================================
         stage('Deploy Updated Services') {
             when { expression { env.SERVICES_TO_UPDATE } }
@@ -89,26 +89,39 @@ pipeline {
                     echo "--- Applying ALL application manifests to create/update objects ---"
                     sh "kubectl apply -f ./kind-deployment/app-manifests.yaml -n ${env.APP_NAMESPACE}"
 
-                    // Add a small sleep to give the Kubernetes API a moment to process the apply.
-                    // This helps prevent race conditions.
-                    sleep 10
+                    // Add a sleep to give the Kubernetes API server a moment to process the apply.
+                    // This prevents the race condition that caused earlier failures.
+                    sleep 15
 
                     echo "--- Forcing rollout restart of updated/missing objects ---"
                     servicesToUpdate.each { service ->
-                        echo "--- Restarting any workload for service: ${service} ---"
-                        // Try to restart a Deployment. If it doesn't exist, this will do nothing and succeed.
-                        sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l app=${service} --ignore-not-found=true"
-                        // Try to restart a StatefulSet. If it doesn't exist, this will do nothing and succeed.
-                        sh "kubectl rollout restart statefulset -n ${env.APP_NAMESPACE} -l app=${service} --ignore-not-found=true"
+                        // Use a simple, robust check to see what kind of object exists for the label.
+                        def deploymentCount = sh(returnStdout: true, script: "kubectl get deployment -n ${env.APP_NAMESPACE} -l app=${service} --no-headers | wc -l").trim()
+                        def statefulSetCount = sh(returnStdout: true, script: "kubectl get statefulset -n ${env.APP_NAMESPACE} -l app=${service} --no-headers | wc -l").trim()
+
+                        if (deploymentCount != "0") {
+                            echo "Found Deployment for service '${service}'. Restarting."
+                            sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l app=${service}"
+                        }
+                        if (statefulSetCount != "0") {
+                            echo "Found StatefulSet for service '${service}'. Restarting."
+                            sh "kubectl rollout restart statefulset -n ${env.APP_NAMESPACE} -l app=${service}"
+                        }
                     }
                     
                     echo "--- Waiting for updated objects to become available ---"
                     servicesToUpdate.each { service ->
-                        echo "--- Waiting for workload of service: ${service} ---"
-                        // Wait for a Deployment. If none exists, this will do nothing and succeed.
-                        sh "kubectl wait --for=condition=Available deployment -n ${env.APP_NAMESPACE} -l app=${service} --timeout=15m --ignore-not-found=true"
-                        // Wait for a StatefulSet. If none exists, this will do nothing and succeed.
-                        sh "kubectl rollout status statefulset -n ${env.APP_NAMESPACE} -l app=${service} --timeout=15m --ignore-not-found=true"
+                        def deploymentCount = sh(returnStdout: true, script: "kubectl get deployment -n ${env.APP_NAMESPACE} -l app=${service} --no-headers | wc -l").trim()
+                        def statefulSetCount = sh(returnStdout: true, script: "kubectl get statefulset -n ${env.APP_NAMESPACE} -l app=${service} --no-headers | wc -l").trim()
+
+                        if (deploymentCount != "0") {
+                            echo "Waiting for Deployment for service '${service}'."
+                            sh "kubectl wait --for=condition=Available deployment -n ${env.APP_NAMESPACE} -l app=${service} --timeout=15m"
+                        }
+                        if (statefulSetCount != "0") {
+                            echo "Waiting for StatefulSet for service '${service}'."
+                            sh "kubectl rollout status statefulset -n ${env.APP_NAMESPACE} -l app=${service} --timeout=1m"
+                        }
                     }
                 }
             }
@@ -116,7 +129,7 @@ pipeline {
     }
 
     post {
-        // This post block is correct and remains unchanged
+        // This post block is correct
         success {
             script {
                 echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
