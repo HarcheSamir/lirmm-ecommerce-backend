@@ -1,5 +1,5 @@
-// This is the final, truly idempotent, and syntactically correct application pipeline.
-// It dynamically handles both Deployments and StatefulSets without hardcoding or invalid flags.
+// This is the final, correct, and intelligent application pipeline.
+// It builds only what's needed and finishes with a refresh to handle state wipes.
 pipeline {
     agent { label 'wsl' }
 
@@ -8,66 +8,59 @@ pipeline {
         IMAGE_TAG           = 'latest'
         KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
         APP_NAMESPACE       = 'lirmm-services'
+        APP_MANIFEST_FILE   = './kind-deployment/app-manifests.yaml'
     }
 
     stages {
-        // This stage is correct and remains unchanged
-        stage('Detect Required Updates (from Git & Kubernetes)') {
+        stage('Detect Required Updates (Git & Kubernetes)') {
             steps {
                 script {
                     echo "--- Detecting services that require an update ---"
-                    env.SERVICES_TO_UPDATE = '' 
-                    def servicesToUpdateSet = new HashSet<String>()
+                    env.SERVICES_TO_BUILD = '' // Services with code changes
+                    
+                    def servicesToBuildSet = new HashSet<String>()
                     def allServices = [
                         'api-gateway', 'auth-service', 'product-service', 'image-service',
                         'search-service', 'cart-service', 'order-service', 'review-service',
                         'payment-service', 'stats-service'
                     ]
 
-                    // Check 1: Git changes
-                    def changedFiles = ''
+                    // Check Git for code changes. This is the only check that triggers a build.
+                    echo "--- Checking for code changes in Git... ---"
                     try {
-                        changedFiles = sh(returnStdout: true, script: 'git diff --name-only HEAD~1 HEAD').trim()
-                    } catch (any) {
-                        changedFiles = allServices.join('\n')
-                    }
-                    if (changedFiles) {
-                        changedFiles.split('\n').each { filePath ->
-                            def serviceDir = filePath.tokenize('/')[0]
-                            if (allServices.contains(serviceDir)) { servicesToUpdateSet.add(serviceDir) }
+                        def changedFiles = sh(returnStdout: true, script: 'git diff --name-only HEAD~1 HEAD').trim()
+                        if (changedFiles) {
+                            changedFiles.split('\n').each { filePath ->
+                                def serviceDir = filePath.tokenize('/')[0]
+                                if (allServices.contains(serviceDir)) {
+                                    echo "Git change detected in: ${serviceDir}"
+                                    servicesToBuildSet.add(serviceDir)
+                                }
+                            }
                         }
+                    } catch (any) {
+                        echo "Could not get git diff, assuming all services are new and need to be built."
+                        servicesToBuildSet.addAll(allServices)
                     }
 
-                    // Check 2: Missing Kubernetes objects
-                    def existingObjects = []
-                    try {
-                        def deploymentApps = sh(returnStdout: true, script: "kubectl get deployment -n ${env.APP_NAMESPACE} -o jsonpath='{.items[*].metadata.labels.app}'").trim()
-                        def statefulSetApps = sh(returnStdout: true, script: "kubectl get statefulset -n ${env.APP_NAMESPACE} -o jsonpath='{.items[*].metadata.labels.app}'").trim()
-                        if (deploymentApps) { existingObjects.addAll(deploymentApps.split(' ')) }
-                        if (statefulSetApps) { existingObjects.addAll(statefulSetApps.split(' ')) }
-                    } catch (any) { /* Do nothing */ }
-                    
-                    allServices.each { service ->
-                        if (!existingObjects.contains(service)) { servicesToUpdateSet.add(service) }
-                    }
-
-                    if (!servicesToUpdateSet.isEmpty()) {
-                        env.SERVICES_TO_UPDATE = servicesToUpdateSet.join(' ')
-                        echo "--- FINAL LIST of services to update: ${env.SERVICES_TO_UPDATE} ---"
+                    if (!servicesToBuildSet.isEmpty()) {
+                        env.SERVICES_TO_BUILD = servicesToBuildSet.join(' ')
+                        echo "--- Services to BUILD: ${env.SERVICES_TO_BUILD} ---"
                     } else {
-                        echo "--- No changes detected in Git or the cluster. ---"
+                        echo "--- No code changes detected in any service directories. ---"
                     }
                 }
             }
         }
 
-        // This stage is correct and remains unchanged
-        stage('Build & Load Updated Images') {
-            when { expression { env.SERVICES_TO_UPDATE } }
+        stage('Build & Load Changed Images') {
+            // This stage ONLY runs if there were code changes.
+            when { expression { env.SERVICES_TO_BUILD } }
             steps {
                 script {
-                    def servicesToUpdate = env.SERVICES_TO_UPDATE.split(' ')
-                    servicesToUpdate.each { service ->
+                    def servicesToBuild = env.SERVICES_TO_BUILD.split(' ')
+                    servicesToBuild.each { service ->
+                        echo "--- Building and loading image for changed service: ${service} ---"
                         def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
                         sh "docker build -t ${imageName} ./${service}"
                         sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
@@ -76,69 +69,31 @@ pipeline {
             }
         }
 
-        // =================================================================
-        // KEY CHANGE: This stage is now GENERIC and uses VALID commands.
-        // It checks for the existence of an object before trying to act on it.
-        // =================================================================
-        stage('Deploy Updated Services') {
-            when { expression { env.SERVICES_TO_UPDATE } }
+        // This final stage runs every time. It is the key to your "Hot Refresh" workflow.
+        // It ensures everything is running and correctly initialized.
+        stage('Deploy & Refresh All Application Services') {
             steps {
                 script {
-                    def servicesToUpdate = env.SERVICES_TO_UPDATE.split(' ')
+                    echo "--- Applying ALL application manifests to ensure objects exist/are updated ---"
+                    sh "kubectl apply -f ${env.APP_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
+                    sleep 10 // Give the API server a moment to process the apply
+
+                    echo "--- Restarting ALL application services to apply changes and run migrations/init ---"
+                    // This is robust and non-hardcoded. It restarts anything with the right label.
+                    sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l app-type=microservice"
+                    sh "kubectl rollout restart statefulset -n ${env.APP_NAMESPACE} -l app-type=microservice"
                     
-                    echo "--- Applying ALL application manifests to create/update objects ---"
-                    sh "kubectl apply -f ./kind-deployment/app-manifests.yaml -n ${env.APP_NAMESPACE}"
-
-                    // Add a sleep to give the Kubernetes API server a moment to process the apply.
-                    // This prevents the race condition that caused earlier failures.
-                    sleep 15
-
-                    echo "--- Forcing rollout restart of updated/missing objects ---"
-                    servicesToUpdate.each { service ->
-                        // Use a simple, robust check to see what kind of object exists for the label.
-                        def deploymentCount = sh(returnStdout: true, script: "kubectl get deployment -n ${env.APP_NAMESPACE} -l app=${service} --no-headers | wc -l").trim()
-                        def statefulSetCount = sh(returnStdout: true, script: "kubectl get statefulset -n ${env.APP_NAMESPACE} -l app=${service} --no-headers | wc -l").trim()
-
-                        if (deploymentCount != "0") {
-                            echo "Found Deployment for service '${service}'. Restarting."
-                            sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l app=${service}"
-                        }
-                        if (statefulSetCount != "0") {
-                            echo "Found StatefulSet for service '${service}'. Restarting."
-                            sh "kubectl rollout restart statefulset -n ${env.APP_NAMESPACE} -l app=${service}"
-                        }
-                    }
-                    
-                    echo "--- Waiting for updated objects to become available ---"
-                    servicesToUpdate.each { service ->
-                        def deploymentCount = sh(returnStdout: true, script: "kubectl get deployment -n ${env.APP_NAMESPACE} -l app=${service} --no-headers | wc -l").trim()
-                        def statefulSetCount = sh(returnStdout: true, script: "kubectl get statefulset -n ${env.APP_NAMESPACE} -l app=${service} --no-headers | wc -l").trim()
-
-                        if (deploymentCount != "0") {
-                            echo "Waiting for Deployment for service '${service}'."
-                            sh "kubectl wait --for=condition=Available deployment -n ${env.APP_NAMESPACE} -l app=${service} --timeout=15m"
-                        }
-                        if (statefulSetCount != "0") {
-                            echo "Waiting for StatefulSet for service '${service}'."
-                            sh "kubectl rollout status statefulset -n ${env.APP_NAMESPACE} -l app=${service} --timeout=1m"
-                        }
-                    }
+                    echo "--- Waiting for ALL applications to become available ---"
+                    sh "kubectl wait --for=condition=Available deployment -n ${env.APP_NAMESPACE} -l app-type=microservice --timeout=15m"
+                    sh "kubectl rollout status statefulset -n ${env.APP_NAMESPACE} -l app-type=microservice --timeout=15m"
                 }
             }
         }
     }
 
     post {
-        // This post block is correct
         success {
-            script {
-                echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
-                if (env.SERVICES_TO_UPDATE) {
-                    echo "Successfully updated services: ${env.SERVICES_TO_UPDATE}"
-                } else {
-                    echo "No services required an update."
-                }
-            }
+            echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
         }
         failure {
             echo "--- APPLICATION DEPLOYMENT FAILED ---"

@@ -1,5 +1,6 @@
-// This is the FINAL pipeline.
-// It resets infrastructure AND refreshes the applications in a single run.
+// This is the final, correct infrastructure pipeline.
+// Its ONLY job is to create or reset the infrastructure (databases, Kafka, etc.).
+// It does NOT touch the application services.
 pipeline {
     agent { label 'wsl' }
 
@@ -7,10 +8,6 @@ pipeline {
         ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
         APP_NAMESPACE       = 'lirmm-services'
         INFRA_MANIFEST_FILE = './kind-deployment/infra-manifests.yaml'
-        //
-        // KEY CHANGE: Added the application manifest file here
-        //
-        APP_MANIFEST_FILE   = './kind-deployment/app-manifests.yaml'
         KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
     }
 
@@ -19,23 +16,16 @@ pipeline {
             steps {
                 script {
                     def publicImages = [
-                        'postgres:15-alpine',
-                        'confluentinc/cp-zookeeper:7.3.2',
-                        'confluentinc/cp-kafka:7.3.2',
-                        'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
+                        'postgres:15-alpine', 'confluentinc/cp-zookeeper:7.3.2',
+                        'confluentinc/cp-kafka:7.3.2', 'docker.elastic.co/elasticsearch:elasticsearch:8.11.1',
                         'redis:7.2-alpine'
                     ]
-                    echo "--- Pulling heavy public images to the agent ---"
+                    sh "chmod +x ./kind-deployment/setup-kind.sh"
+                    withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) { sh "./kind-deployment/setup-kind.sh" }
+                    
+                    echo "--- Pre-pulling and loading public images ---"
                     publicImages.each { image ->
                         sh "docker pull ${image}"
-                    }
-                    echo "--- Running the idempotent setup script ---"
-                    withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
-                        sh "chmod +x ./kind-deployment/setup-kind.sh"
-                        sh "./kind-deployment/setup-kind.sh"
-                    }
-                    echo "--- Loading images into Kind ---"
-                    publicImages.each { image ->
                         sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME}"
                     }
                 }
@@ -45,47 +35,51 @@ pipeline {
         stage('Deploy & Refresh Infrastructure Services') {
             steps {
                 script {
-                    echo "--- Applying infrastructure manifests ---"
+                    echo "--- Applying ALL infrastructure manifests ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
                     
-                    echo "--- Restarting infrastructure to wipe data ---"
+                    echo "--- Restarting ALL infrastructure to wipe data ---"
                     sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l 'component in (zookeeper, kafka, elasticsearch, redis, database)'"
-
-                    echo "--- Waiting for fresh infrastructure to become available ---"
-                    sh "kubectl wait --for=condition=Available deployment -l component=database -n ${env.APP_NAMESPACE} --timeout=10m"
-                    sh "kubectl wait --for=condition=Available deployment -l component=zookeeper -n ${env.APP_NAMESPACE} --timeout=5m"
-                    sh "kubectl wait --for=condition=Available deployment -l component=kafka -n ${env.APP_NAMESPACE} --timeout=5m"
-                    sh "kubectl wait --for=condition=Available deployment -l component=elasticsearch -n ${env.APP_NAMESPACE} --timeout=15m"
-                    sh "kubectl wait --for=condition=Available deployment -l component=redis -n ${env.APP_NAMESPACE} --timeout=5m"
                 }
             }
         }
 
-        // =================================================================
-        // KEY CHANGE: This new stage restarts the apps to run their initContainers
-        // =================================================================
-        stage('Refresh Application Services') {
+        stage('Wait for Infrastructure to be Healthy') {
             steps {
                 script {
-                    echo "--- Applying application manifests to ensure they exist ---"
-                    sh "kubectl apply -f ${env.APP_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
-
-                    echo "--- Restarting application services to run migrations/init ---"
-                    sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l app-type=microservice"
+                    echo "--- Waiting for infrastructure pods to become 'Available' (first check)... ---"
+                    sh "kubectl wait --for=condition=Available deployment -l 'component in (zookeeper, kafka, elasticsearch, redis, database)' -n ${env.APP_NAMESPACE} --timeout=15m"
                     
-                    echo "--- Waiting for all applications to become available ---"
-                    sh "kubectl wait --for=condition=Available deployment -n ${env.APP_NAMESPACE} -l app-type=microservice --timeout=15m"
+                    echo "--- Actively polling Postgres databases until they accept connections (second, deeper check)... ---"
+                    def databases = ['auth-db-svc', 'product-db-svc', 'order-db-svc', 'review-db-svc', 'stats-db-svc']
+                    databases.each { dbSvc ->
+                        echo "Verifying connection to ${dbSvc}..."
+                        // This will retry for up to 2 minutes for each database.
+                        retry(24) {
+                            sh """
+                            kubectl run db-checker-${dbSvc} --rm=true --attach=true -i \\
+                                --namespace ${env.APP_NAMESPACE} \\
+                                --image=postgres:15-alpine \\
+                                --restart=Never -- \\
+                                sh -c 'pg_isready -h ${dbSvc} -p 5432 -U postgres || exit 1'
+                            """
+                            // We don't need a sleep inside retry, it handles backoff.
+                        }
+                        echo "${dbSvc} is ready."
+                    }
+                    
+                    echo "--- Infrastructure is confirmed to be healthy and ready. ---"
                 }
             }
         }
     }
     post {
         success {
-            echo "--- FULL SYSTEM REFRESH SUCCEEDED ---"
-            echo "--- Access your fresh application at: http://localhost:13000 ---"
+            echo "--- INFRASTRUCTURE DEPLOYMENT SUCCEEDED ---"
+            echo "--- The data platform is now clean and ready. You can now run the Application pipeline. ---"
         }
         failure {
-            echo "--- SYSTEM REFRESH FAILED ---"
+            echo "--- INFRASTRUCTURE DEPLOYMENT FAILED ---"
         }
     }
 }
