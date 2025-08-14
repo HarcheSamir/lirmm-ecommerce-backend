@@ -764,3 +764,4 @@ spec:
           value: "http://auth-service-svc:3001"
         - name: ORDER_SERVICE_URL
           value: "http://order-service-svc:3007"
+          

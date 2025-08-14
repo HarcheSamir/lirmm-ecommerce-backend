@@ -1,5 +1,3 @@
-# In kind-cluster-config.yaml
-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -11,21 +9,19 @@ nodes:
       kubeletExtraArgs:
         node-labels: "ingress-ready=true"
   extraPortMappings:
-  # Istio Ingress Gateway
+  # Istio Ingress Gateway: Maps port 13000 on your host to port 30000 on the Kind node.
   - containerPort: 30000
     hostPort: 13000
     protocol: TCP
-  # Kafka
-  # --- FIX: Change the containerPort to avoid collision ---
-  - containerPort: 30992
+  # Kafka External: Maps port 29092 on your host to port 30992 on the Kind node.
+  - containerPort: 30992 # This MUST match the nodePort in the kafka-svc definition
     hostPort: 29092
     protocol: TCP
-  # --- END FIX ---
-  # Elasticsearch
+  # Elasticsearch: Maps port 9200 on your host to port 32200 on the Kind node.
   - containerPort: 32200
     hostPort: 9200
     protocol: TCP
-  # Redis
+  # Redis: Maps port 6379 on your host to port 32379 on the Kind node.
   - containerPort: 32379
     hostPort: 6379
     protocol: TCP

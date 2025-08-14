@@ -6,6 +6,7 @@ find . -type f \
     -path "*/search-service/*"  \
   \) \
   ! -path "*/node_modules/*" \
+  ! -path "*/ai-controller/*" \
   ! -path "*/__tests__/*" \
   ! -path "*/.git/*" \
   ! -path "*/migrations/*" \

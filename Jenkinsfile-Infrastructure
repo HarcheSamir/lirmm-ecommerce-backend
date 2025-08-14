@@ -1,104 +1,66 @@
 pipeline {
-  agent { label 'wsl' }
+    agent { label 'wsl' } // Or your preferred Jenkins agent label
 
-  environment {
-    ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
-    APP_NAMESPACE         = 'lirmm-services'
-    INFRA_MANIFEST_FILE   = './kind-deployment/infra-manifests.yaml'
-    KIND_CLUSTER_NAME     = "lirmm-dev-cluster"
-    KIND_SETUP_SCRIPT     = "./kind-deployment/setup-kind.sh"
-    CLEAN_VOLUMES_SCRIPT  = "./kind-deployment/infra-clean-volumes.sh"
-  }
-
-  stages {
-    stage('Prepare') {
-      steps {
-        sh "chmod +x ${KIND_SETUP_SCRIPT} ${CLEAN_VOLUMES_SCRIPT}"
-      }
+    environment {
+        // Set your Istio bin directory if you installed it manually
+        // If not, the setup script will download it.
+        // PATH = "/path/to/your/istio/bin:$PATH"
+        APP_NAMESPACE         = 'lirmm-services'
+        INFRA_MANIFEST_FILE   = './kind-deployment/infra-manifests.yaml'
+        KIND_CLUSTER_NAME     = "lirmm-dev-cluster"
+        KIND_SETUP_SCRIPT     = "./kind-deployment/setup-kind.sh"
     }
 
-    stage('Ensure Cluster & Istio') {
-      steps {
-        script {
-          def clusters = sh(returnStdout: true, script: "kind get clusters || true").trim()
-          if (!clusters.contains(env.KIND_CLUSTER_NAME)) {
-            echo "Cluster not found, creating cluster and installing Istio..."
-            withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
-              sh "${KIND_SETUP_SCRIPT}"
+    parameters {
+        choice(name: 'MODE', choices: ['BOOTSTRAP_OR_REFRESH_ALL', 'RESET_DATA_ONLY'], description: 'Select run mode: BOOTSTRAP creates cluster+infra. RESET is a fast data wipe for existing cluster.')
+    }
+
+    stages {
+        stage('1. Setup Cluster and Core Services') {
+            steps {
+                script {
+                    // This script is idempotent. It creates the cluster and installs Istio ONLY if they don't exist.
+                    // This will be slow on the first run, and very fast on subsequent runs.
+                    sh "chmod +x ${KIND_SETUP_SCRIPT}"
+                    sh "APP_NAMESPACE=${APP_NAMESPACE} KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME} ${KIND_SETUP_SCRIPT}"
+                }
             }
-            echo "Pre-pulling common images to speed later builds..."
-            def publicImages = [
-              'postgres:15-alpine',
-              'confluentinc/cp-zookeeper:7.3.2',
-              'confluentinc/cp-kafka:7.3.2',
-              'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
-              'redis:7.2-alpine'
-            ]
-            publicImages.each { image ->
-              sh "docker pull ${image} || true"
-              sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME} || true"
-            }
-          } else {
-            echo "Cluster ${env.KIND_CLUSTER_NAME} exists. Will perform volume cleanup to achieve a fresh restart."
-            sh "${CLEAN_VOLUMES_SCRIPT}"
-          }
         }
-      }
-    }
 
-    stage('Apply Infrastructure Manifests') {
-      steps {
-        script {
-          sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
-          // restart infra deployments (component label)
-          sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l 'component in (zookeeper, kafka, elasticsearch, redis, database)' || true"
-        }
-      }
-    }
+        stage('2. Deploy/Reset Infrastructure Services') {
+            steps {
+                script {
+                    if (params.MODE == 'BOOTSTRAP_OR_REFRESH_ALL') {
+                        echo "MODE: BOOTSTRAP_OR_REFRESH_ALL. Applying all infrastructure manifests..."
+                        // Using --force to handle immutable field changes if any, and ensuring a full reset.
+                        sh "kubectl apply -f ${INFRA_MANIFEST_FILE} -n ${APP_NAMESPACE} --force"
+                    } else { // RESET_DATA_ONLY
+                        echo "MODE: RESET_DATA_ONLY. Performing fast reset of stateful components..."
+                        // This is the FAST reset. We delete the pods, the deployment controller recreates them with fresh emptyDir volumes.
+                        sh """
+                           kubectl delete deployments -n ${APP_NAMESPACE} -l 'component in (database, zookeeper, kafka, elasticsearch, redis)' --ignore-not-found=true
+                           echo "Waiting for old stateful pods to terminate..."
+                           sleep 15
+                           echo "Re-applying manifests to ensure Deployments are recreated correctly."
+                           kubectl apply -f ${INFRA_MANIFEST_FILE} -n ${APP_NAMESPACE}
+                        """
+                    }
 
-    stage('Wait for Infra Health') {
-      steps {
-        script {
-          echo "Waiting for infra deployments (component=zookeeper,kafka,elasticsearch,redis,database) to be Available..."
-          sh "kubectl wait --for=condition=Available deployment -l 'component in (zookeeper, kafka, elasticsearch, redis, database)' -n ${env.APP_NAMESPACE} --timeout=15m || true"
-
-          echo "Checking Postgres DB readiness (pg_isready) for common DBs..."
-          def databases = ['auth-db', 'product-db', 'order-db', 'review-db', 'stats-db']
-          databases.each { dbAppLabel ->
-            retry(12) {
-              def podName = sh(returnStdout: true, script: "kubectl get pods -n ${env.APP_NAMESPACE} -l app=${dbAppLabel} -o jsonpath='{.items[0].metadata.name}' || true").trim()
-              if (podName) {
-                sh "kubectl exec -n ${env.APP_NAMESPACE} ${podName} -- pg_isready -U postgres || { echo 'pg_isready failed, retrying...'; exit 1; }"
-              } else {
-                echo "Pod for ${dbAppLabel} not found yet, retrying..."
-                error("Pod for ${dbAppLabel} not found")
-              }
-              sleep 5
+                    echo "Waiting for all infrastructure deployments to be ready..."
+                    // This ensures the pipeline waits until Kafka, DBs, etc., are fully up before finishing.
+                    sh "kubectl wait --for=condition=Available deployment -l 'component in (database, zookeeper, kafka, elasticsearch, redis)' -n ${APP_NAMESPACE} --timeout=10m"
+                }
             }
-          }
-
-          echo "Checking Elasticsearch cluster health..."
-          retry(12) {
-            def esPod = sh(returnStdout: true, script: "kubectl get pods -n ${env.APP_NAMESPACE} -l component=elasticsearch -o jsonpath='{.items[0].metadata.name}' || true").trim()
-            if (esPod) {
-              sh "kubectl exec -n ${env.APP_NAMESPACE} ${esPod} -- curl -s -f http://localhost:9200/_cluster/health?wait_for_status=yellow || { echo 'ES not ready, retrying'; exit 1; }"
-            } else {
-              echo "Elasticsearch pod not found yet, retrying..."
-              error("Elasticsearch pod not found")
-            }
-            sleep 5
-          }
         }
-      }
     }
-  }
 
-  post {
-    success {
-      echo "INFRA PIPELINE SUCCEEDED — infra up and ready (or volumes cleaned). Run the application pipeline next."
+    post {
+        success {
+            echo "INFRA PIPELINE SUCCEEDED. The system is ready for the application pipeline."
+        }
+        failure {
+            echo "INFRA PIPELINE FAILED."
+            // You can add notifications here (Slack, email, etc.)
+        }
     }
-    failure {
-      echo "INFRA PIPELINE FAILED"
-    }
-  }
 }

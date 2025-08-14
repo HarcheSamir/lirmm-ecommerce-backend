@@ -1,92 +1,142 @@
 pipeline {
-  agent { label 'wsl' }
+    agent { label 'wsl' }
 
-  environment {
-    IMAGE_PREFIX        = 'lirmm-ecommerce'
-    IMAGE_TAG           = 'latest'
-    KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
-    APP_NAMESPACE       = 'lirmm-services'
-    APP_MANIFEST_FILE   = './kind-deployment/app-manifests.yaml'
-  }
+    environment {
+        // Use a real registry for real projects. For local Kind, the registry is the local Docker daemon.
+        IMAGE_PREFIX        = 'lirmm-ecommerce' // Your DockerHub username or local prefix
+        IMAGE_TAG           = "build-${env.BUILD_NUMBER}" // Use unique tags
+        KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
+        APP_NAMESPACE       = 'lirmm-services'
+        APP_MANIFEST_FILE   = './kind-deployment/app-manifests.yaml'
+        // Define all your microservices here
+        MICROSERVICES       = ['api-gateway', 'auth-service', 'cart-service', 'image-service', 'order-service', 'payment-service', 'product-service', 'review-service', 'search-service', 'stats-service']
+    }
 
-  stages {
-    stage('Detect & Build Changed Services') {
-      steps {
-        script {
-          echo "Detecting services with code changes..."
-          def servicesToBuild = new HashSet<String>()
-          def allServices = [
-            'api-gateway', 'auth-service', 'product-service', 'image-service',
-            'search-service', 'cart-service', 'order-service', 'review-service',
-            'payment-service', 'stats-service'
-          ]
+    parameters {
+        booleanParam(name: 'FORCE_REBUILD_ALL', defaultValue: false, description: 'Check this to build and redeploy all services, ignoring git changes.')
+        booleanParam(name: 'QUICK_RESTART_ONLY', defaultValue: false, description: 'Check this to only restart app pods (for post-infra-reset), skipping image builds.')
+    }
 
-          // Check if HEAD~1 exists; if not, build all
-          def prevExists = sh(returnStatus: true, script: 'git rev-parse --verify HEAD~1 >/dev/null 2>&1') == 0
-          if (!prevExists) {
-            echo "No previous commit (initial commit). Building all services."
-            servicesToBuild.addAll(allServices)
-          } else {
-            def changedFiles = sh(returnStdout: true, script: 'git diff --name-only HEAD~1 HEAD || true').trim()
-            if (changedFiles) {
-              changedFiles.split('\\n').each { filePath ->
-                def parts = filePath.tokenize('/')
-                if (parts.size() > 0) {
-                  def serviceDir = parts[0]
-                  if (allServices.contains(serviceDir)) {
-                    servicesToBuild.add(serviceDir)
-                  }
+    stages {
+        stage('1. Pre-flight Checks') {
+            when {
+                not { expression { return params.QUICK_RESTART_ONLY } }
+            }
+            steps {
+                script {
+                    echo "Checking for Docker and kubectl..."
+                    sh 'docker --version'
+                    sh 'kubectl version --client'
                 }
-              }
-            } else {
-              echo "No code changes detected between HEAD~1 and HEAD."
             }
-          }
+        }
 
-          if (!servicesToBuild.isEmpty()) {
-            echo "Services to BUILD: ${servicesToBuild.join(', ')}"
-            servicesToBuild.each { service ->
-              echo "Building and loading image for ${service}..."
-              def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
-              sh "docker build -t ${imageName} ./${service}"
-              sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
+        stage('2. Detect Changed Services') {
+            when {
+                not { expression { return params.QUICK_RESTART_ONLY } }
             }
-          } else {
-            echo "No services need building."
-          }
-
+            steps {
+                script {
+                    // This script block determines which services need to be built.
+                    env.SERVICES_TO_BUILD = ''
+                    if (params.FORCE_REBUILD_ALL) {
+                        echo "FORCE_REBUILD_ALL is true. Building all services."
+                        env.SERVICES_TO_BUILD = MICROSERVICES.join(',')
+                    } else {
+                        echo "Detecting changed services using git..."
+                        // Comparing with the previous commit. For PR-based workflows, you'd compare with the target branch (e.g., 'origin/main').
+                        def changedFiles = sh(script: 'git diff --name-only HEAD~1 HEAD || true', returnStdout: true).trim().split('\n')
+                        def changedServices = []
+                        for (service in MICROSERVICES) {
+                            // If any changed file starts with the service directory name
+                            if (changedFiles.any { it.startsWith("${service}/") }) {
+                                echo "Change detected in: ${service}"
+                                changedServices.add(service)
+                            }
+                        }
+                        if (changedServices.isEmpty()) {
+                            echo "No changes detected in any microservice."
+                        } else {
+                            env.SERVICES_TO_BUILD = changedServices.join(',')
+                        }
+                    }
+                    if (env.SERVICES_TO_BUILD) {
+                        echo "Services to be built and deployed: ${env.SERVICES_TO_BUILD}"
+                    }
+                }
+            }
         }
-      }
-    }
 
-    stage('Deploy & Hot Refresh Application') {
-      steps {
-        script {
-          echo "Applying application manifests (ensures resources exist)..."
-          sh "kubectl apply -f ${env.APP_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
-          sleep 10
+        stage('3. Build, Push & Load Images') {
+            when {
+                expression { return env.SERVICES_TO_BUILD }
+            }
+            steps {
+                script {
+                    def services = env.SERVICES_TO_BUILD.split(',')
+                    def buildStages = [:]
 
-          echo "Restarting application workloads to ensure initContainers/migrations/seeding run..."
-          // Restart deployments and statefulsets labeled app-type=microservice
-          sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l app-type=microservice || true"
-          sh "kubectl rollout restart statefulset -n ${env.APP_NAMESPACE} -l app-type=microservice || true"
+                    for (service in services) {
+                        def serviceName = service // new variable for the closure
+                        buildStages[serviceName] = {
+                            stage("Build: ${serviceName}") {
+                                dir(serviceName) {
+                                    def imageName = "${IMAGE_PREFIX}/${serviceName}:${IMAGE_TAG}"
+                                    echo "Building ${imageName}..."
+                                    // Make sure you are logged into docker if pushing to a remote registry
+                                    // withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                                    //     sh "docker login -u ${DOCKER_USER} -p ${DOCKER_PASS}"
+                                    // }
+                                    sh "docker build -t ${imageName} ."
 
-          echo "Waiting for deployments to be available..."
-          sh "kubectl wait --for=condition=Available deployment -n ${env.APP_NAMESPACE} -l app-type=microservice --timeout=15m || true"
-
-          echo "Waiting for statefulsets to finish rolling upgrade..."
-          sh "kubectl rollout status statefulset -n ${env.APP_NAMESPACE} -l app-type=microservice --timeout=15m || true"
+                                    echo "Loading image ${imageName} into Kind cluster..."
+                                    // This step is CRITICAL for Kind. It makes the image available inside the cluster.
+                                    sh "kind load docker-image ${imageName} --name ${KIND_CLUSTER_NAME}"
+                                }
+                            }
+                        }
+                    }
+                    parallel buildStages
+                }
+            }
         }
-      }
-    }
-  }
 
-  post {
-    success {
-      echo "APPLICATION PIPELINE SUCCEEDED"
+        stage('4. Deploy to Kubernetes') {
+            steps {
+                script {
+                    if (params.QUICK_RESTART_ONLY) {
+                        echo "MODE: QUICK_RESTART_ONLY. Restarting all application deployments..."
+                        sh "kubectl rollout restart deployment -n ${APP_NAMESPACE} -l app-type=microservice"
+
+                    } else if (env.SERVICES_TO_BUILD) {
+                        echo "Applying base manifests and updating image tags..."
+                        // This is a clever trick: we use `sed` to update the image tag for the services we just built,
+                        // then apply the result. This avoids checking in version changes.
+                        def sedCommands = env.SERVICES_TO_BUILD.split(',').collect {
+                            "s|image: ${IMAGE_PREFIX}/${it}:latest|image: ${IMAGE_PREFIX}/${it}:${IMAGE_TAG}|g"
+                        }.join('; ')
+
+                        sh "cat ${APP_MANIFEST_FILE} | sed '${sedCommands}' | kubectl apply -n ${APP_NAMESPACE} -f -"
+                        
+                        echo "Waiting for deployments to stabilize..."
+                        def servicesToRollout = env.SERVICES_TO_BUILD.split(',')
+                        for (service in servicesToRollout) {
+                            sh "kubectl rollout status deployment/${service}-deployment -n ${APP_NAMESPACE} --timeout=5m"
+                        }
+                    } else {
+                       echo "No services were built, skipping deployment."
+                    }
+                }
+            }
+        }
     }
-    failure {
-      echo "APPLICATION PIPELINE FAILED"
+
+    post {
+        success {
+            echo "APPLICATION PIPELINE SUCCEEDED."
+        }
+        failure {
+            error "APPLICATION PIPELINE FAILED."
+        }
     }
-  }
 }
