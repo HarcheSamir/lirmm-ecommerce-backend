@@ -1,92 +1,104 @@
-// Fixed infrastructure pipeline that creates cluster OR clears volumes
 pipeline {
-    agent { label 'wsl' }
+  agent { label 'wsl' }
 
-    environment {
-        ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
-        APP_NAMESPACE       = 'lirmm-services'
-        INFRA_MANIFEST_FILE = './kind-deployment/infra-manifests.yaml'
-        KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
+  environment {
+    ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
+    APP_NAMESPACE         = 'lirmm-services'
+    INFRA_MANIFEST_FILE   = './kind-deployment/infra-manifests.yaml'
+    KIND_CLUSTER_NAME     = "lirmm-dev-cluster"
+    KIND_SETUP_SCRIPT     = "./kind-deployment/setup-kind.sh"
+    CLEAN_VOLUMES_SCRIPT  = "./kind-deployment/infra-clean-volumes.sh"
+  }
+
+  stages {
+    stage('Prepare') {
+      steps {
+        sh "chmod +x ${KIND_SETUP_SCRIPT} ${CLEAN_VOLUMES_SCRIPT}"
+      }
     }
 
-    stages {
-        stage('Setup Kind Cluster and Istio') {
-            steps {
-                script {
-                    def publicImages = [
-                        'postgres:15-alpine',
-                        'confluentinc/cp-zookeeper:7.3.2',
-                        'confluentinc/cp-kafka:7.3.2',
-                        'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
-                        'redis:7.2-alpine'
-                    ]
-                    sh "chmod +x ./kind-deployment/setup-kind.sh"
-                    withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) { 
-                        sh "./kind-deployment/setup-kind.sh"
-                    }
-
-                    echo "--- Pre-pulling and loading public images ---"
-                    publicImages.each { image ->
-                        sh "docker pull ${image}"
-                        sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME}"
-                    }
-                }
+    stage('Ensure Cluster & Istio') {
+      steps {
+        script {
+          def clusters = sh(returnStdout: true, script: "kind get clusters || true").trim()
+          if (!clusters.contains(env.KIND_CLUSTER_NAME)) {
+            echo "Cluster not found, creating cluster and installing Istio..."
+            withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) {
+              sh "${KIND_SETUP_SCRIPT}"
             }
-        }
-
-        stage('Deploy Infrastructure Services') {
-            steps {
-                script {
-                    echo "--- Deploying fresh infrastructure services ---"
-                    sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
-                }
+            echo "Pre-pulling common images to speed later builds..."
+            def publicImages = [
+              'postgres:15-alpine',
+              'confluentinc/cp-zookeeper:7.3.2',
+              'confluentinc/cp-kafka:7.3.2',
+              'docker.elastic.co/elasticsearch/elasticsearch:8.11.1',
+              'redis:7.2-alpine'
+            ]
+            publicImages.each { image ->
+              sh "docker pull ${image} || true"
+              sh "kind load docker-image ${image} --name ${env.KIND_CLUSTER_NAME} || true"
             }
+          } else {
+            echo "Cluster ${env.KIND_CLUSTER_NAME} exists. Will perform volume cleanup to achieve a fresh restart."
+            sh "${CLEAN_VOLUMES_SCRIPT}"
+          }
         }
-
-        stage('Wait for Infrastructure to be Healthy') {
-            steps {
-                script {
-                    echo "--- Waiting for infrastructure pods to become 'Available' ---"
-                    sh "kubectl wait --for=condition=Available deployment -l 'component in (zookeeper,kafka,elasticsearch,redis,database)' -n ${env.APP_NAMESPACE} --timeout=15m"
-
-                    echo "--- Verifying database connectivity ---"
-                    def databases = ['auth-db', 'product-db', 'order-db', 'review-db', 'stats-db']
-                    databases.each { dbAppLabel ->
-                        echo "Verifying connection to ${dbAppLabel}..."
-                        retry(24) {
-                            def podName = sh(returnStdout: true, script: "kubectl get pods -n ${env.APP_NAMESPACE} -l app=${dbAppLabel} -o jsonpath='{.items[0].metadata.name}'").trim()
-                            if (podName) {
-                                sh "kubectl exec -n ${env.APP_NAMESPACE} ${podName} -- pg_isready -U postgres"
-                            } else {
-                                echo "Waiting for pod with label app=${dbAppLabel} to appear..."
-                                throw new Exception("Pod for ${dbAppLabel} not found yet.")
-                            }
-                            sleep 5
-                        }
-                        echo "${dbAppLabel} is ready."
-                    }
-
-                    echo "--- Verifying Elasticsearch health ---"
-                    retry(24) {
-                        def podName = sh(returnStdout: true, script: "kubectl get pods -n ${env.APP_NAMESPACE} -l component=elasticsearch -o jsonpath='{.items[0].metadata.name}'").trim()
-                        sh "kubectl exec -n ${env.APP_NAMESPACE} ${podName} -- curl -s -f http://localhost:9200/_cluster/health?wait_for_status=yellow"
-                        sleep 5
-                    }
-                    echo "Elasticsearch is healthy."
-
-                    echo "--- Infrastructure is confirmed to be healthy and ready. ---"
-                }
-            }
-        }
+      }
     }
-    
-    post {
-        success {
-            echo "--- INFRASTRUCTURE DEPLOYMENT SUCCEEDED ---"
-            echo "--- All volumes are cleared and infrastructure is fresh. You can now run the Application pipeline. ---"
+
+    stage('Apply Infrastructure Manifests') {
+      steps {
+        script {
+          sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
+          // restart infra deployments (component label)
+          sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l 'component in (zookeeper, kafka, elasticsearch, redis, database)' || true"
         }
-        failure {
-            echo "--- INFRASTRUCTURE DEPLOYMENT FAILED ---"
-        }
+      }
     }
+
+    stage('Wait for Infra Health') {
+      steps {
+        script {
+          echo "Waiting for infra deployments (component=zookeeper,kafka,elasticsearch,redis,database) to be Available..."
+          sh "kubectl wait --for=condition=Available deployment -l 'component in (zookeeper, kafka, elasticsearch, redis, database)' -n ${env.APP_NAMESPACE} --timeout=15m || true"
+
+          echo "Checking Postgres DB readiness (pg_isready) for common DBs..."
+          def databases = ['auth-db', 'product-db', 'order-db', 'review-db', 'stats-db']
+          databases.each { dbAppLabel ->
+            retry(12) {
+              def podName = sh(returnStdout: true, script: "kubectl get pods -n ${env.APP_NAMESPACE} -l app=${dbAppLabel} -o jsonpath='{.items[0].metadata.name}' || true").trim()
+              if (podName) {
+                sh "kubectl exec -n ${env.APP_NAMESPACE} ${podName} -- pg_isready -U postgres || { echo 'pg_isready failed, retrying...'; exit 1; }"
+              } else {
+                echo "Pod for ${dbAppLabel} not found yet, retrying..."
+                error("Pod for ${dbAppLabel} not found")
+              }
+              sleep 5
+            }
+          }
+
+          echo "Checking Elasticsearch cluster health..."
+          retry(12) {
+            def esPod = sh(returnStdout: true, script: "kubectl get pods -n ${env.APP_NAMESPACE} -l component=elasticsearch -o jsonpath='{.items[0].metadata.name}' || true").trim()
+            if (esPod) {
+              sh "kubectl exec -n ${env.APP_NAMESPACE} ${esPod} -- curl -s -f http://localhost:9200/_cluster/health?wait_for_status=yellow || { echo 'ES not ready, retrying'; exit 1; }"
+            } else {
+              echo "Elasticsearch pod not found yet, retrying..."
+              error("Elasticsearch pod not found")
+            }
+            sleep 5
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "INFRA PIPELINE SUCCEEDED — infra up and ready (or volumes cleaned). Run the application pipeline next."
+    }
+    failure {
+      echo "INFRA PIPELINE FAILED"
+    }
+  }
 }
