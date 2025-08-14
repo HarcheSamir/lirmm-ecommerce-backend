@@ -11,10 +11,10 @@ pipeline {
     }
 
     stages {
-        stage('Detect & Build Changed Services') {
+        stage('Build Required Services') {
             steps {
                 script {
-                    echo "--- Detecting services with code changes ---"
+                    echo "--- Checking which services need to be built ---"
                     def servicesToBuild = new HashSet<String>()
                     def allServices = [
                         'api-gateway', 'auth-service', 'product-service', 'image-service',
@@ -22,7 +22,7 @@ pipeline {
                         'payment-service', 'stats-service'
                     ]
 
-                    // Check Git for code changes. This is the only check that triggers a build.
+                    // First, check for code changes
                     try {
                         def changedFiles = sh(returnStdout: true, script: 'git diff --name-only HEAD~1 HEAD').trim()
                         if (changedFiles) {
@@ -32,22 +32,34 @@ pipeline {
                                     servicesToBuild.add(serviceDir)
                                 }
                             }
+                            echo "--- Services with code changes: ${servicesToBuild.join(', ')} ---"
                         }
                     } catch (any) {
-                        echo "Could not get git diff, assuming all services are new and need to be built."
-                        servicesToBuild.addAll(allServices)
+                        echo "Could not get git diff, will check for missing images."
+                    }
+
+                    // Check if images exist in Kind cluster, build missing ones
+                    echo "--- Checking for missing images in Kind cluster ---"
+                    allServices.each { service ->
+                        def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
+                        def imageExists = sh(returnStatus: true, script: "docker exec ${env.KIND_CLUSTER_NAME}-control-plane crictl images | grep -q '${imageName}'")
+                        
+                        if (imageExists != 0) {
+                            echo "--- Image missing for ${service}, will build ---"
+                            servicesToBuild.add(service)
+                        }
                     }
 
                     if (!servicesToBuild.isEmpty()) {
                         echo "--- Services to BUILD: ${servicesToBuild.join(', ')} ---"
                         servicesToBuild.each { service ->
-                            echo "--- Building and loading image for changed service: ${service} ---"
+                            echo "--- Building and loading image for service: ${service} ---"
                             def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
                             sh "docker build -t ${imageName} ./${service}"
                             sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
                         }
                     } else {
-                        echo "--- No code changes detected in any service directories. No images will be built. ---"
+                        echo "--- All required images exist in cluster. No builds needed. ---"
                     }
                 }
             }
