@@ -7,12 +7,11 @@ KIND_CONFIG_FILE="./kind-deployment/kind-cluster-config.yaml"
 APP_NAMESPACE="lirmm-services"
 
 # --- Helper Functions for modularity ---
-
 # This function creates the cluster and installs Istio from scratch.
 create_cluster_and_install_istio() {
     echo "--- Creating new Kind cluster: ${CLUSTER_NAME} ---"
     kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
-
+    
     echo "--- Checking for istioctl in the PATH ---"
     if ! command -v istioctl &> /dev/null; then
         echo "FATAL: istioctl could not be found in the PATH. Please ensure it's available to Jenkins."
@@ -37,8 +36,8 @@ create_cluster_and_install_istio() {
 install_istio_addons() {
     echo "--- Installing Istio addons (Kiali, Prometheus, Grafana) ---"
     # Find the istioctl installation directory to locate the addons
-    ISTIO_DIR_PATH=$(dirname "$(dirname "$(which istioctl)")")
-
+    ISTIO_DIR_PATH="$(dirname "$(dirname "$(which istioctl)")")"
+    
     if [ -d "$ISTIO_DIR_PATH/samples/addons" ]; then
         kubectl apply -f "$ISTIO_DIR_PATH/samples/addons/kiali.yaml"
         kubectl apply -f "$ISTIO_DIR_PATH/samples/addons/prometheus.yaml"
@@ -61,9 +60,24 @@ setup_namespace() {
     kubectl label namespace "${APP_NAMESPACE}" istio-injection=enabled --overwrite
 }
 
+# This function clears all volumes by deleting and recreating infrastructure pods
+clear_all_volumes() {
+    echo "--- CLEARING ALL VOLUMES: Deleting infrastructure deployments to reset data ---"
+    
+    # Delete infrastructure deployments to clear volumes (emptyDir volumes will be recreated empty)
+    kubectl delete deployment -n "${APP_NAMESPACE}" -l 'component in (zookeeper,kafka,elasticsearch,redis,database)' --ignore-not-found=true
+    
+    # Wait for pods to be fully terminated
+    echo "--- Waiting for infrastructure pods to terminate completely ---"
+    kubectl wait --for=delete pod -n "${APP_NAMESPACE}" -l 'component in (zookeeper,kafka,elasticsearch,redis,database)' --timeout=5m || echo "--- Some pods may have already been deleted ---"
+    
+    echo "--- Volume clearing complete. Infrastructure will be redeployed fresh. ---"
+}
+
 # --- Main Script Execution ---
 
 echo "--- Checking for existing Kind cluster '${CLUSTER_NAME}' ---"
+
 # =================================================================
 # KEY CHANGE: Check if the cluster exists before creating it.
 # =================================================================
@@ -72,7 +86,8 @@ if ! kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
     create_cluster_and_install_istio
     install_istio_addons
 else
-    echo "--- Cluster '${CLUSTER_NAME}' already exists. Skipping cluster creation and Istio installation. ---"
+    echo "--- Cluster '${CLUSTER_NAME}' already exists. Clearing all volumes for fresh start. ---"
+    clear_all_volumes
 fi
 
 # This function always runs to make sure the namespace is set up correctly.

@@ -1,5 +1,4 @@
-// This is the final, correct, and intelligent application pipeline.
-// It builds only what's needed and finishes with a full application refresh.
+// Fixed application pipeline that builds only changed services and always restarts for fresh init
 pipeline {
     agent { label 'wsl' }
 
@@ -54,23 +53,29 @@ pipeline {
             }
         }
 
-        // This final stage runs every time to handle your "Hot Refresh" workflow.
-        // It ensures everything is running and correctly initialized after a potential infra reset.
-        stage('Deploy & Refresh All Application Services') {
+        stage('Deploy & Fresh Restart All Services') {
             steps {
                 script {
                     echo "--- Applying ALL application manifests to ensure objects exist/are updated ---"
                     sh "kubectl apply -f ${env.APP_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
-                    sleep 15 // Give the API server a moment to process the apply and prevent race conditions.
-
-                    echo "--- Restarting ALL application services to apply changes and run migrations/init ---"
-                    // This is robust and non-hardcoded. It restarts anything with the right label.
-                    sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l app-type=microservice"
-                    sh "kubectl rollout restart statefulset -n ${env.APP_NAMESPACE} -l app-type=microservice"
                     
+                    // Give the API server a moment to process the apply
+                    sleep 10
+
+                    echo "--- Performing fresh restart of ALL application services ---"
+                    echo "--- This ensures fresh initialization, migrations, and seeding after volume clearing ---"
+                    
+                    // Restart all microservice deployments
+                    sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l app-type=microservice"
+                    
+                    // Restart all microservice statefulsets
+                    sh "kubectl rollout restart statefulset -n ${env.APP_NAMESPACE} -l app-type=microservice"
+
                     echo "--- Waiting for ALL applications to become available ---"
                     sh "kubectl wait --for=condition=Available deployment -n ${env.APP_NAMESPACE} -l app-type=microservice --timeout=15m"
                     sh "kubectl rollout status statefulset -n ${env.APP_NAMESPACE} -l app-type=microservice --timeout=15m"
+                    
+                    echo "--- Fresh restart complete - all services initialized with clean data ---"
                 }
             }
         }
@@ -79,6 +84,7 @@ pipeline {
     post {
         success {
             echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
+            echo "--- All services are running with fresh initialization. Prisma migrations and seeding completed. ---"
         }
         failure {
             echo "--- APPLICATION DEPLOYMENT FAILED ---"

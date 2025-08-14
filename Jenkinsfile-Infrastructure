@@ -1,5 +1,4 @@
-// This is the final, correct infrastructure pipeline.
-// It uses a more robust health check that will not hang.
+// Fixed infrastructure pipeline that creates cluster OR clears volumes
 pipeline {
     agent { label 'wsl' }
 
@@ -22,8 +21,10 @@ pipeline {
                         'redis:7.2-alpine'
                     ]
                     sh "chmod +x ./kind-deployment/setup-kind.sh"
-                    withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) { sh "./kind-deployment/setup-kind.sh" }
-                    
+                    withEnv(["PATH+EXTRA=${env.ISTIO_BIN_DIR}"]) { 
+                        sh "./kind-deployment/setup-kind.sh"
+                    }
+
                     echo "--- Pre-pulling and loading public images ---"
                     publicImages.each { image ->
                         sh "docker pull ${image}"
@@ -32,63 +33,57 @@ pipeline {
                 }
             }
         }
-        
-        stage('Deploy & Refresh Infrastructure Services') {
+
+        stage('Deploy Infrastructure Services') {
             steps {
                 script {
+                    echo "--- Deploying fresh infrastructure services ---"
                     sh "kubectl apply -f ${env.INFRA_MANIFEST_FILE} -n ${env.APP_NAMESPACE}"
-                    sh "kubectl rollout restart deployment -n ${env.APP_NAMESPACE} -l 'component in (zookeeper, kafka, elasticsearch, redis, database)'"
                 }
             }
         }
 
-        // =================================================================
-        // KEY CHANGE: This stage now uses a more reliable health check.
-        // It uses 'kubectl exec' instead of 'kubectl run --attach'.
-        // =================================================================
         stage('Wait for Infrastructure to be Healthy') {
             steps {
                 script {
                     echo "--- Waiting for infrastructure pods to become 'Available' ---"
-                    sh "kubectl wait --for=condition=Available deployment -l 'component in (zookeeper, kafka, elasticsearch, redis, database)' -n ${env.APP_NAMESPACE} --timeout=15m"
-                    
-                    echo "--- Actively polling Postgres databases until they accept connections ---"
+                    sh "kubectl wait --for=condition=Available deployment -l 'component in (zookeeper,kafka,elasticsearch,redis,database)' -n ${env.APP_NAMESPACE} --timeout=15m"
+
+                    echo "--- Verifying database connectivity ---"
                     def databases = ['auth-db', 'product-db', 'order-db', 'review-db', 'stats-db']
                     databases.each { dbAppLabel ->
                         echo "Verifying connection to ${dbAppLabel}..."
-                        // We will retry for up to 2 minutes for each database.
                         retry(24) {
-                            // Get the name of the actual pod for this database
                             def podName = sh(returnStdout: true, script: "kubectl get pods -n ${env.APP_NAMESPACE} -l app=${dbAppLabel} -o jsonpath='{.items[0].metadata.name}'").trim()
                             if (podName) {
-                                // Exec directly into the pod to run the health check
                                 sh "kubectl exec -n ${env.APP_NAMESPACE} ${podName} -- pg_isready -U postgres"
                             } else {
                                 echo "Waiting for pod with label app=${dbAppLabel} to appear..."
                                 throw new Exception("Pod for ${dbAppLabel} not found yet.")
                             }
-                            sleep 5 // Wait 5 seconds between successful retries to allow time for the next DB
+                            sleep 5
                         }
                         echo "${dbAppLabel} is ready."
                     }
-                    
-                    echo "--- Actively polling Elasticsearch until it is healthy ---"
+
+                    echo "--- Verifying Elasticsearch health ---"
                     retry(24) {
                         def podName = sh(returnStdout: true, script: "kubectl get pods -n ${env.APP_NAMESPACE} -l component=elasticsearch -o jsonpath='{.items[0].metadata.name}'").trim()
                         sh "kubectl exec -n ${env.APP_NAMESPACE} ${podName} -- curl -s -f http://localhost:9200/_cluster/health?wait_for_status=yellow"
                         sleep 5
                     }
                     echo "Elasticsearch is healthy."
-                    
+
                     echo "--- Infrastructure is confirmed to be healthy and ready. ---"
                 }
             }
         }
     }
+    
     post {
         success {
             echo "--- INFRASTRUCTURE DEPLOYMENT SUCCEEDED ---"
-            echo "--- The data platform is now clean and ready. You can now run the Application pipeline. ---"
+            echo "--- All volumes are cleared and infrastructure is fresh. You can now run the Application pipeline. ---"
         }
         failure {
             echo "--- INFRASTRUCTURE DEPLOYMENT FAILED ---"
