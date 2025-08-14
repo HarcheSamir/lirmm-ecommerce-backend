@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CORRECTED SCRIPT - respects existing istioctl
+# CORRECTED SCRIPT - respects existing istioctl & installs specific addons
 set -euo pipefail
 
 # Configuration
@@ -25,7 +25,7 @@ if ! kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
   log "Creating Kind cluster: ${CLUSTER_NAME}"
   kind create cluster --name "${CLUSTER_NAME}" --config "${KIND_CONFIG_FILE}"
 
-  # **FIX:** CHECK FOR ISTIOCTL BEFORE DOING ANYTHING
+  # CHECK FOR ISTIOCTL BEFORE DOING ANYTHING
   if ! command -v istioctl &> /dev/null; then
       echo "FATAL: istioctl not found in PATH. Please ensure ISTIO_BIN_DIR is set correctly in Jenkins."
       exit 1
@@ -43,18 +43,32 @@ if ! kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
   kubectl -n istio-system patch svc istio-ingressgateway --type='json' -p='[{"op": "replace", "path": "/spec/type", "value": "NodePort"}]'
   kubectl -n istio-system patch svc istio-ingressgateway --type='json' -p='[{"op": "replace", "path": "/spec/ports/0/nodePort", "value": 30000}]'
 
+  # --- START OF MODIFIED BLOCK ---
   log "Installing Istio addons (Kiali, Prometheus, Grafana)..."
-  # **FIX:** This uses the istioctl in your path to find the addons
-  # We find the installation directory of istioctl to locate the samples
+  # Find the installation directory of istioctl to locate the samples
   ISTIOCTL_PATH=$(command -v istioctl)
   ISTIO_BASE_DIR=$(dirname $(dirname ${ISTIOCTL_PATH}))
-  if [ -d "${ISTIO_BASE_DIR}/samples/addons" ]; then
-      kubectl apply -f "${ISTIO_BASE_DIR}/samples/addons"
+  ADDONS_DIR="${ISTIO_BASE_DIR}/samples/addons"
+
+  if [ -d "${ADDONS_DIR}" ]; then
+      log "Applying Prometheus manifest..."
+      kubectl apply -f "${ADDONS_DIR}/prometheus.yaml"
+
+      log "Applying Grafana manifest..."
+      kubectl apply -f "${ADDONS_DIR}/grafana.yaml"
+
+      log "Applying Kiali manifest..."
+      kubectl apply -f "${ADDONS_DIR}/kiali.yaml"
+
       log "Waiting for addons to be ready..."
-      kubectl wait --for=condition=Available deployment --all -n istio-system --timeout=6m || echo "WARNING: Some Istio addons may not be ready yet."
+      # We explicitly wait only for the deployments we care about
+      kubectl wait --for=condition=Available deployment/prometheus -n istio-system --timeout=5m || echo "WARNING: Prometheus did not become ready in time."
+      kubectl wait --for=condition=Available deployment/grafana -n istio-system --timeout=5m || echo "WARNING: Grafana did not become ready in time."
+      kubectl wait --for=condition=Available deployment/kiali -n istio-system --timeout=5m || echo "WARNING: Kiali did not become ready in time."
   else
-      echo "WARNING: Could not find Istio addons in ${ISTIO_BASE_DIR}/samples/addons. Skipping."
+      echo "WARNING: Could not find Istio addons in ${ADDONS_DIR}. Skipping addon installation."
   fi
+  # --- END OF MODIFIED BLOCK ---
 
 else
   log "Cluster '${CLUSTER_NAME}' already exists. Skipping cluster creation and Istio install."
