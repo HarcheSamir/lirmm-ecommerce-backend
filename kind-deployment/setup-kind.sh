@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
+# CORRECTED SCRIPT - respects existing istioctl
 set -euo pipefail
 
 # Configuration
 CLUSTER_NAME="${KIND_CLUSTER_NAME:-lirmm-dev-cluster}"
 KIND_CONFIG_FILE="${KIND_CONFIG_FILE:-./kind-deployment/kind-cluster-config.yaml}"
 APP_NAMESPACE="${APP_NAMESPACE:-lirmm-services}"
-ISTIO_VERSION="1.21.2" # Specify a stable Istio version
 
-# Helpers
 log() {
   echo
   echo "------------------------------------------------------------"
@@ -22,18 +21,16 @@ command -v kubectl >/dev/null 2>&1 || { echo "FATAL: kubectl not found in PATH."
 # Main Logic
 log "Checking for existing Kind cluster '${CLUSTER_NAME}'"
 if ! kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
-  log "Cluster not found. Creating new cluster and installing Istio (this will take a while)..."
-
+  log "Cluster not found. Creating new cluster and installing Istio..."
   log "Creating Kind cluster: ${CLUSTER_NAME}"
   kind create cluster --name "${CLUSTER_NAME}" --config "${KIND_CONFIG_FILE}"
 
-  log "Installing istioctl if not present..."
+  # **FIX:** CHECK FOR ISTIOCTL BEFORE DOING ANYTHING
   if ! command -v istioctl &> /dev/null; then
-      echo "istioctl not found, downloading version ${ISTIO_VERSION}..."
-      curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${ISTIO_VERSION} sh -
-      # Assuming this script runs from the repo root, istio will be downloaded here.
-      # In Jenkins, you should add its bin to the PATH.
-      export PATH="$PWD/istio-${ISTIO_VERSION}/bin:$PATH"
+      echo "FATAL: istioctl not found in PATH. Please ensure ISTIO_BIN_DIR is set correctly in Jenkins."
+      exit 1
+  else
+      echo "Found istioctl version: $(istioctl version)"
   fi
 
   log "Installing Istio (demo profile)"
@@ -43,19 +40,21 @@ if ! kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
   kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=10m
 
   log "Configuring istio-ingressgateway service as NodePort..."
-  # Patch to ensure the type is NodePort, then patch the specific port. This is idempotent.
   kubectl -n istio-system patch svc istio-ingressgateway --type='json' -p='[{"op": "replace", "path": "/spec/type", "value": "NodePort"}]'
   kubectl -n istio-system patch svc istio-ingressgateway --type='json' -p='[{"op": "replace", "path": "/spec/ports/0/nodePort", "value": 30000}]'
 
   log "Installing Istio addons (Kiali, Prometheus, Grafana)..."
-  # Fetch the addons YAML and apply them
-  ISTIO_DIR=$(istioctl manifest generate --set profile=demo | grep -o 'istio-.*' | head -1 | cut -d/ -f1)
-  git clone --depth 1 https://github.com/istio/istio.git /tmp/istio-repo
-  kubectl apply -f /tmp/istio-repo/samples/addons
-  rm -rf /tmp/istio-repo
-
-  log "Waiting for addons to be ready..."
-  kubectl wait --for=condition=Available deployment --all -n istio-system --timeout=6m || echo "WARNING: Some Istio addons may not be ready yet."
+  # **FIX:** This uses the istioctl in your path to find the addons
+  # We find the installation directory of istioctl to locate the samples
+  ISTIOCTL_PATH=$(command -v istioctl)
+  ISTIO_BASE_DIR=$(dirname $(dirname ${ISTIOCTL_PATH}))
+  if [ -d "${ISTIO_BASE_DIR}/samples/addons" ]; then
+      kubectl apply -f "${ISTIO_BASE_DIR}/samples/addons"
+      log "Waiting for addons to be ready..."
+      kubectl wait --for=condition=Available deployment --all -n istio-system --timeout=6m || echo "WARNING: Some Istio addons may not be ready yet."
+  else
+      echo "WARNING: Could not find Istio addons in ${ISTIO_BASE_DIR}/samples/addons. Skipping."
+  fi
 
 else
   log "Cluster '${CLUSTER_NAME}' already exists. Skipping cluster creation and Istio install."
