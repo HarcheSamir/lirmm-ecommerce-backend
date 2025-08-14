@@ -359,7 +359,7 @@ metadata:
   labels:
     app-type: microservice
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: product-service
@@ -554,15 +554,14 @@ spec:
     targetPort: 3007
 ---
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
-  name: order-service-statefulset
+  name: order-service-deployment
   namespace: lirmm-services
   labels:
     app-type: microservice
 spec:
-  serviceName: "order-service-svc"
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: order-service
@@ -570,7 +569,6 @@ spec:
     metadata:
       labels:
         app: order-service
-        app-type: microservice
     spec:
       initContainers:
       - name: order-db-migrate
@@ -766,23 +764,3 @@ spec:
           value: "http://auth-service-svc:3001"
         - name: ORDER_SERVICE_URL
           value: "http://order-service-svc:3007"
-
-
----
-apiVersion: networking.istio.io/v1beta1
-kind: DestinationRule
-metadata:
-  name: order-service-dr
-  namespace: lirmm-services
-spec:
-  host: order-service-svc.lirmm-services.svc.cluster.local
-  subsets:
-  - name: v1-pod0 # Subset for the first pod
-    labels:
-      statefulset.kubernetes.io/pod-name: order-service-statefulset-0
-  - name: v1-pod1 # Subset for the second pod
-    labels:
-      statefulset.kubernetes.io/pod-name: order-service-statefulset-1
-  - name: v1-pod2 # Subset for the third pod
-    labels:
-      statefulset.kubernetes.io/pod-name: order-service-statefulset-2
