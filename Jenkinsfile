@@ -1,4 +1,4 @@
-// Jenkinsfile (FINAL, SYNTACTICALLY CORRECT VERSION)
+// FINAL, CORRECTED, AND SIMPLIFIED Jenkinsfile
 pipeline {
     agent { label 'wsl' }
 
@@ -17,91 +17,81 @@ pipeline {
     }
 
     stages {
-        stage('Main Build and Deploy Logic') {
+        stage('Execute Build/Deploy Logic') {
             steps {
-                // The entire logic is now wrapped in a single `script` block.
-                // This is the correct way to manage variables between stages in a Declarative Pipeline.
                 script {
                     if (params.QUICK_RESTART) {
-                        stage('Quick Restart') {
-                            echo "--- QUICK RESTART MODE ---"
-                            echo "Performing a rolling restart of all application deployments..."
-                            sh "kubectl rollout restart deployment -n ${APP_NAMESPACE} -l app-type=microservice"
-                            
-                            echo "Waiting for rollout to complete..."
-                            sh "kubectl rollout status deployment -n ${APP_NAMESPACE} -l app-type=microservice --timeout=10m"
-                        }
+                        echo "--- QUICK RESTART MODE ---"
+                        sh "kubectl rollout restart deployment -n ${APP_NAMESPACE} -l app-type=microservice"
+                        sh "kubectl rollout status deployment -n ${APP_NAMESPACE} -l app-type=microservice --timeout=10m"
                     } else {
                         // --- BUILD & DEPLOY LOGIC ---
-                        def builtServicesList = []
-
-                        stage('Determine Services to Build') {
-                            if (params.FORCE_REBUILD_ALL) {
-                                echo "FORCE_REBUILD_ALL is true. Building all services."
-                                builtServicesList = MICROSERVICES.split(',')
-                            } else {
-                                echo "Detecting changed services since last successful build..."
-                                try {
-                                    def changedFiles = sh(
-                                        script: 'git diff --name-only ${GIT_PREVIOUS_SUCCESSFUL_COMMIT} ${GIT_COMMIT}',
-                                        returnStdout: true
-                                    ).trim().split('\n')
-
-                                    def services = MICROSERVICES.split(',')
-                                    def servicesToBuildSet = new HashSet<String>()
-
-                                    services.each { service ->
-                                        changedFiles.each { file ->
-                                            if (file.startsWith("${service}/")) {
-                                                echo "Change detected in '${service}' due to file: ${file}"
-                                                servicesToBuildSet.add(service)
-                                            }
+                        
+                        // Use 'def' to ensure it's a proper Groovy List
+                        def servicesToBuild = []
+                        
+                        echo "Determining services to build..."
+                        if (params.FORCE_REBUILD_ALL) {
+                            echo "FORCE_REBUILD_ALL is true. Building all services."
+                            servicesToBuild = MICROSERVICES.split(',').toList()
+                        } else {
+                            try {
+                                def changedFiles = sh(
+                                    script: 'git diff --name-only ${GIT_PREVIOUS_SUCCESSFUL_COMMIT} ${GIT_COMMIT}',
+                                    returnStdout: true
+                                ).trim().split('\n')
+                                
+                                def allServices = MICROSERVICES.split(',')
+                                def servicesToBuildSet = new HashSet()
+                                
+                                allServices.each { service ->
+                                    changedFiles.each { file ->
+                                        if (file.startsWith("${service}/")) {
+                                            servicesToBuildSet.add(service)
                                         }
                                     }
-                                    builtServicesList = new ArrayList<String>(servicesToBuildSet)
-                                } catch (Exception e) {
-                                    echo "Could not determine changed files (likely the first build). Building all services."
-                                    builtServicesList = MICROSERVICES.split(',')
                                 }
+                                servicesToBuild = new ArrayList(servicesToBuildSet)
+                            } catch (e) {
+                                echo "First build or error detecting changes. Building all services."
+                                servicesToBuild = MICROSERVICES.split(',').toList()
                             }
-                            echo "Services to be rebuilt: ${builtServicesList}"
                         }
+                        
+                        echo "Services to build: ${servicesToBuild}"
 
-                        if (!builtServicesList.isEmpty()) {
-                            stage('Build and Push Images in Parallel') {
-                                def parallelBuilds = [:]
-                                builtServicesList.each { service ->
-                                    parallelBuilds["Build ${service}"] = {
-                                        echo "Building ${service}..."
-                                        def imageName = "${REGISTRY_HOST}/${IMAGE_PREFIX}/${service}:${IMAGE_TAG}"
-                                        dir(service) {
-                                            sh "docker build -t ${imageName} ."
-                                        }
-                                        echo "Pushing ${imageName} to local registry..."
-                                        sh "docker push ${imageName}"
+                        // Correct check for an empty list
+                        if (servicesToBuild.size() > 0) {
+                            echo "Building and pushing images..."
+                            def parallelBuilds = [:]
+                            servicesToBuild.each { service ->
+                                parallelBuilds["Build ${service}"] = {
+                                    echo "Building Docker image for ${service}..."
+                                    def imageName = "${REGISTRY_HOST}/${IMAGE_PREFIX}/${service}:${IMAGE_TAG}"
+                                    dir(service) {
+                                        sh "docker build -t ${imageName} ."
                                     }
+                                    sh "docker push ${imageName}"
                                 }
-                                parallel parallelBuilds
                             }
+                            parallel parallelBuilds
+                        } else {
+                            echo "No services to build."
                         }
 
-                        stage('Deploy Applications') {
-                            echo "--- DEPLOY/UPDATE MODE ---"
-                            echo "Applying all application manifests to ensure system is in desired state..."
-                            sh "kubectl apply -f ${APP_MANIFEST_FILE}"
+                        echo "Applying Kubernetes manifests and restarting deployments..."
+                        sh "kubectl apply -f ${APP_MANIFEST_FILE}"
 
-                            if (!builtServicesList.isEmpty()) {
-                                echo "Triggering rollout for newly built services: ${builtServicesList}"
-                                builtServicesList.each { service ->
-                                    sh "kubectl rollout restart deployment/${service}-deployment -n ${APP_NAMESPACE}"
-                                }
-                                echo "Waiting for rollouts to complete..."
-                                builtServicesList.each { service ->
-                                    sh "kubectl rollout status deployment/${service}-deployment -n ${APP_NAMESPACE} --timeout=5m"
-                                }
-                            } else {
-                                echo "No new images were built. 'kubectl apply' is sufficient."
+                        if (servicesToBuild.size() > 0) {
+                            echo "Restarting deployments for built services..."
+                            servicesToBuild.each { service ->
+                                sh "kubectl rollout restart deployment/${service}-deployment -n ${APP_NAMESPACE}"
                             }
+                            servicesToBuild.each { service ->
+                                sh "kubectl rollout status deployment/${service}-deployment -n ${APP_NAMESPACE} --timeout=5m"
+                            }
+                        } else {
+                            echo "No new deployments to restart."
                         }
                     }
                 }
