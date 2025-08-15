@@ -60,6 +60,7 @@ pipeline {
         }
     }
 
+
     post {
         success {
             echo "--- APPLICATION DEPLOYMENT SUCCEEDED ---"
