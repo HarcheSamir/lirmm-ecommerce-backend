@@ -1,4 +1,4 @@
-// Jenkinsfile-Infrastructure
+// Jenkinsfile-Infrastructure (Complete and Corrected)
 pipeline {
     agent { label 'wsl' }
 
@@ -10,6 +10,7 @@ pipeline {
         KIND_CLUSTER_NAME     = "lirmm-dev-cluster"
         KIND_CONFIG_FILE      = "./kind-deployment/kind-cluster-config.yaml"
         KIND_SETUP_SCRIPT     = "./kind-deployment/setup-kind.sh"
+        ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin' // Your original variable is correct.
         // Add all your infra images here to pre-pull and push them
         INFRA_IMAGES = """
             confluentinc/cp-zookeeper:7.3.2
@@ -31,16 +32,18 @@ pipeline {
                 script {
                     echo "--- BOOTSTRAP MODE ---"
                     
-                    // Check if cluster exists to prevent error
-                    if (sh(script: "kind get clusters | grep ${KIND_CLUSTER_NAME} || true", returnStatus: true) == 0) {
-                        echo "Cluster '${KIND_CLUSTER_NAME}' already exists. If you want a full fresh start, delete it manually with 'kind delete cluster --name ${KIND_CLUSTER_NAME}' and run BOOTSTRAP again."
-                        // Skipping cluster creation but will proceed with other steps to ensure idempotency
-                    } else {
-                        echo "Creating Kind cluster '${KIND_CLUSTER_NAME}'..."
+                    // --- FIX #1: Corrected cluster check logic ---
+                    // We check if the command FAILS (!= 0), which means the cluster does NOT exist.
+                    if (sh(script: "kind get clusters | grep -q ${KIND_CLUSTER_NAME}", returnStatus: true) != 0) {
+                        echo "Cluster '${KIND_CLUSTER_NAME}' not found. Creating a new one..."
                         sh "kind create cluster --name ${KIND_CLUSTER_NAME} --config ${KIND_CONFIG_FILE}"
                         
                         echo "Connecting local registry to Kind network..."
-                        sh 'docker network connect "kind" "kind-registry"'
+                        // Adding a small sleep to ensure the network is ready, just in case.
+                        sleep(5) 
+                        sh 'docker network connect "kind" "kind-registry" || echo "Registry already connected or network not ready, continuing..."'
+                    } else {
+                        echo "Cluster '${KIND_CLUSTER_NAME}' already exists. Skipping cluster creation."
                     }
 
                     echo "Pre-pulling and pushing infra images to local registry for speed..."
@@ -54,9 +57,13 @@ pipeline {
                         """
                     }
 
-                    echo "Running setup script for Istio and addons..."
-                    sh "chmod +x ${KIND_SETUP_SCRIPT}"
-                    sh "${KIND_SETUP_SCRIPT}"
+                    // --- FIX #2: Add ISTIO_BIN_DIR to the PATH ---
+                    // This withEnv block makes `istioctl` available to any `sh` command inside it.
+                    withEnv(["PATH+ISTIO=${env.ISTIO_BIN_DIR}"]) {
+                        echo "Running setup script for Istio and addons (istioctl is now in PATH)..."
+                        sh "chmod +x ${KIND_SETUP_SCRIPT}"
+                        sh "${KIND_SETUP_SCRIPT}"
+                    }
                     
                     echo "Deploying infrastructure services (Databases, Kafka, Redis, ES)..."
                     sh "kubectl apply -f ${INFRA_MANIFEST_FILE}"
@@ -74,11 +81,11 @@ pipeline {
                     echo "--- RESET DATA ONLY MODE ---"
                     echo "Deleting all stateful service pods to wipe data (this is fast)..."
                     // This is the magic. Deleting pods with emptyDir volumes resets their state.
-                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=zookeeper"
-                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=kafka"
-                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=elasticsearch"
-                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=redis"
-                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=database"
+                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=zookeeper --ignore-not-found=true"
+                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=kafka --ignore-not-found=true"
+                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=elasticsearch --ignore-not-found=true"
+                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=redis --ignore-not-found=true"
+                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=database --ignore-not-found=true"
                     
                     echo "Waiting for infrastructure to come back online..."
                     sh "kubectl wait --for=condition=available deployment -n ${APP_NAMESPACE} --all --timeout=10m"
