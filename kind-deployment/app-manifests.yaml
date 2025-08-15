@@ -250,15 +250,10 @@ spec:
       labels:
         app: api-gateway
     spec:
-      initContainers:
-      - name: istio-proxy-wait
-        image: localhost:5000/curlimages/curl:8.5.0
-        imagePullPolicy: IfNotPresent
-        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
       containers:
       - name: api-gateway
-        image: localhost:5000/lirmm-ecommerce/api-gateway:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/api-gateway:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
         env:
@@ -316,21 +311,17 @@ spec:
         app: auth-service
     spec:
       initContainers:
-      - name: istio-proxy-wait
-        image: localhost:5000/curlimages/curl:8.5.0
-        imagePullPolicy: IfNotPresent
-        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
       - name: auth-db-migrate
-        image: localhost:5000/lirmm-ecommerce/auth-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/auth-service:latest
+        imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma"]
         env:
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@auth-db-svc:5432/auth_db?schema=public"
       containers:
       - name: auth-service
-        image: localhost:5000/lirmm-ecommerce/auth-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/auth-service:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3001
         env:
@@ -376,21 +367,17 @@ spec:
         app: product-service
     spec:
       initContainers:
-      - name: istio-proxy-wait
-        image: localhost:5000/curlimages/curl:8.5.0
-        imagePullPolicy: IfNotPresent
-        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
       - name: product-db-migrate
-        image: localhost:5000/lirmm-ecommerce/product-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/product-service:latest
+        imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma"]
         env:
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
       containers:
       - name: product-service
-        image: localhost:5000/lirmm-ecommerce/product-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/product-service:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3003
         env:
@@ -435,15 +422,10 @@ spec:
       labels:
         app: image-service
     spec:
-      initContainers:
-      - name: istio-proxy-wait
-        image: localhost:5000/curlimages/curl:8.5.0
-        imagePullPolicy: IfNotPresent
-        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
       containers:
       - name: image-service
-        image: localhost:5000/lirmm-ecommerce/image-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/image-service:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3004
         volumeMounts:
@@ -494,15 +476,10 @@ spec:
       annotations:
         traffic.sidecar.istio.io/excludeOutboundPorts: "9092"
     spec:
-      initContainers:
-      - name: istio-proxy-wait
-        image: localhost:5000/curlimages/curl:8.5.0
-        imagePullPolicy: IfNotPresent
-        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
       containers:
       - name: search-service
-        image: localhost:5000/lirmm-ecommerce/search-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/search-service:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3005
         env:
@@ -545,15 +522,10 @@ spec:
       labels:
         app: cart-service
     spec:
-      initContainers:
-      - name: istio-proxy-wait
-        image: localhost:5000/curlimages/curl:8.5.0
-        imagePullPolicy: IfNotPresent
-        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
       containers:
       - name: cart-service
-        image: localhost:5000/lirmm-ecommerce/cart-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/cart-service:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3006
         env:
@@ -597,21 +569,17 @@ spec:
         app: order-service
     spec:
       initContainers:
-      - name: istio-proxy-wait
-        image: localhost:5000/curlimages/curl:8.5.0
-        imagePullPolicy: IfNotPresent
-        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
       - name: order-db-migrate
-        image: localhost:5000/lirmm-ecommerce/order-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/order-service:latest
+        imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@order-db-svc:5432/order_db?schema=public"
       containers:
       - name: order-service
-        image: localhost:5000/lirmm-ecommerce/order-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/order-service:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3007
         env:
@@ -661,21 +629,17 @@ spec:
         app: review-service
     spec:
       initContainers:
-      - name: istio-proxy-wait
-        image: localhost:5000/curlimages/curl:8.5.0
-        imagePullPolicy: IfNotPresent
-        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
       - name: review-db-migrate
-        image: localhost:5000/lirmm-ecommerce/review-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/review-service:latest
+        imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@review-db-svc:5432/review_db?schema=public"
       containers:
       - name: review-service
-        image: localhost:5000/lirmm-ecommerce/review-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/review-service:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3008
         env:
@@ -722,15 +686,10 @@ spec:
       labels:
         app: payment-service
     spec:
-      initContainers:
-      - name: istio-proxy-wait
-        image: localhost:5000/curlimages/curl:8.5.0
-        imagePullPolicy: IfNotPresent
-        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
       containers:
       - name: payment-service
-        image: localhost:5000/lirmm-ecommerce/payment-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/payment-service:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3009
         env:
@@ -772,21 +731,17 @@ spec:
         app: stats-service
     spec:
       initContainers:
-      - name: istio-proxy-wait
-        image: localhost:5000/curlimages/curl:8.5.0
-        imagePullPolicy: IfNotPresent
-        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
       - name: stats-db-migrate
-        image: localhost:5000/lirmm-ecommerce/stats-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/stats-service:latest
+        imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@stats-db-svc:5432/stats_db?schema=public"
       containers:
       - name: stats-service
-        image: localhost:5000/lirmm-ecommerce/stats-service:latest
-        imagePullPolicy: Always
+        image: lirmm-ecommerce/stats-service:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3010
         env:
