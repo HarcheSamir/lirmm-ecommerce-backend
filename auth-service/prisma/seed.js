@@ -4,22 +4,38 @@ const bcrypt = require('bcrypt');
 const prisma = new PrismaClient();
 
 const ALL_PERMISSIONS = [
+    // User Permissions
     { name: 'read:user', description: 'Read all user information' },
     { name: 'write:user', description: 'Create or update users' },
     { name: 'delete:user', description: 'Deactivate users' },
+    
+    // Role Permissions
     { name: 'read:role', description: 'Read roles and their permissions' },
     { name: 'write:role', description: 'Create or update roles and assign permissions' },
+
+    // Product Permissions
+    { name: 'read:product', description: 'Read product information' },
     { name: 'create:product', description: 'Create a new product' },
     { name: 'update:product', description: 'Update any product' },
     { name: 'delete:product', description: 'Delete any product' },
+    
+    // Category Permissions
+    { name: 'read:category', description: 'Read category information' },
     { name: 'create:category', description: 'Create a new category' },
     { name: 'update:category', description: 'Update any category' },
     { name: 'delete:category', description: 'Delete any category' },
+
+    // Stock Permissions
+    { name: 'read:stock', description: 'Read stock levels for product variants' }, // <-- NEW
     { name: 'adjust:stock', description: 'Adjust stock for any product variant' },
+
+    // Order Permissions
     { name: 'read:order', description: 'Read all user orders' },
     { name: 'update:order', description: 'Update the status of any order' },
     { name: 'read:my-orders', description: 'Read one\'s own orders' },
     { name: 'create:order', description: 'Create a new order for oneself' },
+
+    // Review Permissions
     { name: 'read:review', description: 'Read one\'s own reviews' },
     { name: 'write:review', description: 'Create or update one\'s own reviews' },
     { name: 'delete:review', description: 'Delete any review (for admins) or one\'s own' },
@@ -46,7 +62,11 @@ async function main() {
         ADMIN: { desc: 'Super administrator with all permissions.', perms: permissions.map(p => p.id) },
         Supervisor: {
             desc: 'Oversees operations and users.',
-            perms: ['read:user', 'read:order', 'update:order', 'read:product', 'read:category', 'adjust:stock'].map(name => permissionsMap.get(name))
+            // --- UPDATED SUPERVISOR PERMISSIONS ---
+            perms: [
+                'read:user', 'read:order', 'read:product', 'read:category', 'read:stock',
+                'update:order', 'adjust:stock'
+            ].map(name => permissionsMap.get(name))
         },
         Support: {
             desc: 'Provides technical assistance.',
@@ -54,7 +74,7 @@ async function main() {
         },
         Auditor: {
             desc: 'Reviews system activities.',
-            perms: ['read:user', 'read:role', 'read:product', 'read:category', 'read:order'].map(name => permissionsMap.get(name))
+            perms: ['read:user', 'read:role', 'read:product', 'read:category', 'read:order', 'read:stock'].map(name => permissionsMap.get(name))
         },
         Customer: {
             desc: 'Customer role with permissions to browse and purchase.',
