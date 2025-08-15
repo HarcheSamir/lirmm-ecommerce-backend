@@ -250,6 +250,13 @@ spec:
       labels:
         app: api-gateway
     spec:
+      initContainers:
+      # --- SURGICAL MODIFICATION START ---
+      - name: istio-proxy-wait
+        image: curlimages/curl:8.5.0
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
+      # --- SURGICAL MODIFICATION END ---
       containers:
       - name: api-gateway
         image: localhost:5000/lirmm-ecommerce/api-gateway:latest
@@ -313,6 +320,12 @@ spec:
         app: auth-service
     spec:
       initContainers:
+      # --- SURGICAL MODIFICATION START ---
+      - name: istio-proxy-wait
+        image: curlimages/curl:8.5.0
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
+      # --- SURGICAL MODIFICATION END ---
       - name: auth-db-migrate
         image: localhost:5000/lirmm-ecommerce/auth-service:latest
         imagePullPolicy: Always
@@ -369,6 +382,12 @@ spec:
         app: product-service
     spec:
       initContainers:
+      # --- SURGICAL MODIFICATION START ---
+      - name: istio-proxy-wait
+        image: curlimages/curl:8.5.0
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
+      # --- SURGICAL MODIFICATION END ---
       - name: product-db-migrate
         image: localhost:5000/lirmm-ecommerce/product-service:latest
         imagePullPolicy: Always
@@ -424,6 +443,13 @@ spec:
       labels:
         app: image-service
     spec:
+      initContainers:
+      # --- SURGICAL MODIFICATION START ---
+      - name: istio-proxy-wait
+        image: curlimages/curl:8.5.0
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
+      # --- SURGICAL MODIFICATION END ---
       containers:
       - name: image-service
         image: localhost:5000/lirmm-ecommerce/image-service:latest
@@ -478,6 +504,13 @@ spec:
       annotations:
         traffic.sidecar.istio.io/excludeOutboundPorts: "9092"
     spec:
+      initContainers:
+      # --- SURGICAL MODIFICATION START ---
+      - name: istio-proxy-wait
+        image: curlimages/curl:8.5.0
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
+      # --- SURGICAL MODIFICATION END ---
       containers:
       - name: search-service
         image: localhost:5000/lirmm-ecommerce/search-service:latest
@@ -524,6 +557,13 @@ spec:
       labels:
         app: cart-service
     spec:
+      initContainers:
+      # --- SURGICAL MODIFICATION START ---
+      - name: istio-proxy-wait
+        image: curlimages/curl:8.5.0
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
+      # --- SURGICAL MODIFICATION END ---
       containers:
       - name: cart-service
         image: localhost:5000/lirmm-ecommerce/cart-service:latest
@@ -571,6 +611,12 @@ spec:
         app: order-service
     spec:
       initContainers:
+      # --- SURGICAL MODIFICATION START ---
+      - name: istio-proxy-wait
+        image: curlimages/curl:8.5.0
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
+      # --- SURGICAL MODIFICATION END ---
       - name: order-db-migrate
         image: localhost:5000/lirmm-ecommerce/order-service:latest
         imagePullPolicy: Always
@@ -633,6 +679,12 @@ spec:
         app: review-service
     spec:
       initContainers:
+      # --- SURGICAL MODIFICATION START ---
+      - name: istio-proxy-wait
+        image: curlimages/curl:8.5.0
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
+      # --- SURGICAL MODIFICATION END ---
       - name: review-db-migrate
         image: localhost:5000/lirmm-ecommerce/review-service:latest
         imagePullPolicy: Always
@@ -691,6 +743,13 @@ spec:
       labels:
         app: payment-service
     spec:
+      initContainers:
+      # --- SURGICAL MODIFICATION START ---
+      - name: istio-proxy-wait
+        image: curlimages/curl:8.5.0
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
+      # --- SURGICAL MODIFICATION END ---
       containers:
       - name: payment-service
         image: localhost:5000/lirmm-ecommerce/payment-service:latest
@@ -738,10 +797,16 @@ spec:
         app: stats-service
     spec:
       initContainers:
+      # --- SURGICAL MODIFICATION START ---
+      - name: istio-proxy-wait
+        image: curlimages/curl:8.5.0
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'until curl -s -f http://localhost:15021/healthz/ready; do echo "Waiting for Istio sidecar..."; sleep 1; done;']
+      # --- SURGICAL MODIFICATION END ---
       - name: stats-db-migrate
         image: localhost:5000/lirmm-ecommerce/stats-service:latest
         imagePullPolicy: Always
-        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
+        command: ["sh', '-c', 'npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss"]
         env:
         - name: DATABASE_URL
           value: "postgresql://postgres:postgres@stats-db-svc:5432/stats_db?schema=public"
@@ -764,4 +829,3 @@ spec:
           value: "http://auth-service-svc:3001"
         - name: ORDER_SERVICE_URL
           value: "http://order-service-svc:3007"
-          
