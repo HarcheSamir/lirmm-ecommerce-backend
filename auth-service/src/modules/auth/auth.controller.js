@@ -4,6 +4,60 @@ const prisma = require('../../config/prisma');
 const JWT_SECRET = process.env.JWT_SECRET;
 const { sendMessage } = require('../../kafka/producer');
 
+const completeInvitation = async (req, res, next) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) {
+      return res.status(400).json({ message: 'Token and password are required.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { invitationToken: token } });
+
+    if (!user) {
+      return res.status(404).json({ message: 'Invitation not found. The token is invalid.' });
+    }
+
+    if (user.invitationExpires < new Date()) {
+      // For expired tokens, we could implement a re-send logic, but for now we delete the pending user.
+      await prisma.user.delete({ where: { id: user.id } });
+      return res.status(410).json({ message: 'Invitation has expired. Please ask for a new one.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        isActive: true,
+        invitationToken: null,
+        invitationExpires: null,
+      },
+      include: {
+        role: {
+          include: { permissions: { include: { permission: true } } },
+        },
+      },
+    });
+
+    const permissions = updatedUser.role.permissions.map(p => p.permission.name);
+    const payload = {
+      id: updatedUser.id,
+      email: updatedUser.email,
+      name: updatedUser.name,
+      profileImage: updatedUser.profileImage,
+      role: updatedUser.role.name,
+      permissions: permissions,
+    };
+    const authToken = jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' });
+
+    res.json({ token: authToken });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
 const register = async (req, res, next) => {
   try {
     const { name, email, password, roleName = 'Customer', profileImage } = req.body;
@@ -78,7 +132,7 @@ const login = async (req, res, next) => {
       },
     });
 
-    if (!user) {
+    if (!user || !user.password) { // Check for password existence for invited users who haven't set it.
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
@@ -190,10 +244,11 @@ const resyncAllUsers = async (req, res, next) => {
 
 
 
-module.exports = { 
-  register, 
-  login, 
-  me, 
+module.exports = {
+  completeInvitation,
+  register,
+  login,
+  me,
   validateToken,
-  resyncAllUsers 
+  resyncAllUsers
 };

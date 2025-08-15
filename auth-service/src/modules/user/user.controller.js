@@ -1,5 +1,6 @@
 const prisma = require('../../config/prisma');
 const { sendMessage } = require('../../kafka/producer');
+const crypto = require('crypto');
 
 const userSelectDetailed = {
   id: true,
@@ -28,6 +29,56 @@ const userSelectDetailed = {
     },
   },
 };
+
+const inviteUser = async (req, res, next) => {
+  try {
+    const { name, email, roleId } = req.body;
+    if (!name || !email || !roleId) {
+      return res.status(400).json({ message: 'Name, email, and roleId are required.' });
+    }
+
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return res.status(409).json({ message: 'A user with this email already exists.' });
+    }
+
+    const role = await prisma.role.findUnique({ where: { id: roleId } });
+    if (!role) {
+      return res.status(400).json({ message: 'The specified roleId does not exist.' });
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // Token valid for 24 hours
+
+    const newUser = await prisma.user.create({
+      data: {
+        name,
+        email,
+        roleId,
+        isActive: false,
+        password: null,
+        invitationToken: token,
+        invitationExpires: expires,
+      },
+      select: { id: true, name: true, email: true }
+    });
+
+    await sendMessage('USER_INVITED', {
+      id: newUser.id,
+      name: newUser.name,
+      email: newUser.email,
+      token: token, // Send the raw token in the event
+    });
+
+    res.status(201).json({ message: 'Invitation sent successfully.', userId: newUser.id });
+  } catch (err) {
+    if (err.code === 'P2003') { // Foreign key constraint failed on roleId
+      return res.status(400).json({ message: 'The specified roleId does not exist.' });
+    }
+    next(err);
+  }
+};
+
 
 const getAllUsers = async (req, res, next) => {
   try {
@@ -129,14 +180,12 @@ const updateUser = async (req, res, next) => {
       select: userSelectDetailed,
     });
 
-    // --- Send Kafka Event with Email ---
     await sendMessage('USER_UPDATED', {
         id: updatedUser.id,
         name: updatedUser.name,
         email: updatedUser.email,
         profileImage: updatedUser.profileImage
     });
-    // --- End Kafka Event ---
 
     const formattedUser = {
         ...updatedUser,
@@ -158,36 +207,53 @@ const updateUser = async (req, res, next) => {
   }
 };
 
+// --- MODIFIED AND IMPROVED FUNCTION ---
 const deactivateUser = async (req, res, next) => {
     try {
-        const { id: userIdToDeactivate } = req.params;
+        const { id: userIdToDelete } = req.params;
         const requestingUserId = req.user.id;
 
-        if (userIdToDeactivate === requestingUserId) {
-          return res.status(403).json({ message: 'Forbidden: You cannot deactivate your own account.' });
-        }
+        const targetUser = await prisma.user.findUnique({
+            where: { id: userIdToDelete },
+            include: { role: true }
+        });
 
-        const targetUser = await prisma.user.findUnique({ where: { id: userIdToDeactivate }, include: { role: true }});
         if (!targetUser) {
             return res.status(404).json({ message: "User not found." });
         }
-        if (targetUser.role.name === 'ADMIN') {
-            const adminCount = await prisma.user.count({ where: { role: { name: 'ADMIN' }, isActive: true } });
-            if (adminCount <= 1) {
-              return res.status(403).json({ message: 'Forbidden: Cannot deactivate the last active administrator.' });
+
+        // Case 1: The user is a pending invite. Hard delete to revoke the invitation.
+        if (!targetUser.isActive && targetUser.invitationToken) {
+            await prisma.user.delete({ where: { id: userIdToDelete } });
+            console.log(`Revoked invitation and hard-deleted pending user: ${userIdToDelete}`);
+        }
+        // Case 2: The user is an active user. Deactivate them (soft delete).
+        else {
+            if (userIdToDelete === requestingUserId) {
+              return res.status(403).json({ message: 'Forbidden: You cannot deactivate your own account.' });
             }
+            if (targetUser.role.name === 'ADMIN') {
+                const adminCount = await prisma.user.count({ where: { role: { name: 'ADMIN' }, isActive: true } });
+                if (adminCount <= 1) {
+                  return res.status(403).json({ message: 'Forbidden: Cannot deactivate the last active administrator.' });
+                }
+            }
+            await prisma.user.update({ where: { id: userIdToDelete }, data: { isActive: false } });
+             console.log(`Deactivated (soft-deleted) active user: ${userIdToDelete}`);
         }
 
-        await prisma.user.update({ where: { id: userIdToDeactivate }, data: { isActive: false } });
-        
-        await sendMessage('USER_DELETED', { id: userIdToDeactivate });
-        
+        // Send Kafka event for both hard and soft deletes.
+        await sendMessage('USER_DELETED', { id: userIdToDelete });
+
         res.status(204).send();
     } catch (err) {
-        if (err.code === 'P2025') { return res.status(404).json({ message: 'User to deactivate not found.' }); }
+        if (err.code === 'P2025') {
+            return res.status(404).json({ message: 'User to delete or deactivate not found.' });
+        }
         next(err);
     }
 };
+// --- END MODIFICATION ---
 
 const activateUser = async (req, res, next) => {
     try {
@@ -195,15 +261,13 @@ const activateUser = async (req, res, next) => {
         await prisma.user.update({ where: { id }, data: { isActive: true } });
         const user = await prisma.user.findUnique({ where: { id }, select: userSelectDetailed });
 
-        // --- Send Kafka Event with Email ---
         await sendMessage('USER_UPDATED', {
             id: user.id,
             name: user.name,
             email: user.email,
             profileImage: user.profileImage
         });
-        // --- End Kafka Event ---
-        
+
         const formattedUser = { ...user, role: { ...user.role, permissions: user.role.permissions.map(p => p.permission) }};
         res.json(formattedUser);
     } catch (err) {
@@ -211,9 +275,6 @@ const activateUser = async (req, res, next) => {
         next(err);
     }
 };
-
-
-
 
 const getTotalUserCount = async (req, res, next) => {
   try {
@@ -224,9 +285,8 @@ const getTotalUserCount = async (req, res, next) => {
   }
 };
 
-
-
 module.exports = {
+  inviteUser,
   getAllUsers,
   getUserById,
   updateUser,

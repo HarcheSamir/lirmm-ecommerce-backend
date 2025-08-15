@@ -60,6 +60,7 @@ services:
         kafka-topics --bootstrap-server kafka-dev:9092 --create --if-not-exists --topic review_events --partitions 1 --replication-factor 1 &&
         kafka-topics --bootstrap-server kafka-dev:9092 --create --if-not-exists --topic order_events --partitions 1 --replication-factor 1 &&
         kafka-topics --bootstrap-server kafka-dev:9092 --create --if-not-exists --topic payment_events --partitions 1 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka-dev:9092 --create --if-not-exists --topic notification_events --partitions 1 --replication-factor 1 &&
         echo 'Topics created successfully.'
       "
 
@@ -126,7 +127,9 @@ services:
         condition: service_started
       payment-service:
         condition: service_started
-      stats-service: # <-- ADD THIS
+      stats-service:
+        condition: service_started
+      notification-service:
         condition: service_started
     environment:
       PORT: 3000
@@ -140,7 +143,8 @@ services:
       ORDER_SERVICE_URL: http://order-service-dev:3007
       REVIEW_SERVICE_URL: http://review-service-dev:3008
       PAYMENT_SERVICE_URL: http://payment-service-dev:3009
-      STATS_SERVICE_URL: http://stats-service-dev:3010 # <-- ADD THIS
+      STATS_SERVICE_URL: http://stats-service-dev:3010
+      NOTIFICATION_SERVICE_URL: http://notification-service-dev:3011
     command: npm run dev
     develop:
       watch:
@@ -382,7 +386,6 @@ services:
         - action: rebuild
           path: ./payment-service/package.json
 
-  # --- START: NEW STATS SERVICE ---
   stats-service:
     build: ./stats-service
     container_name: stats-service-dev
@@ -414,8 +417,34 @@ services:
           target: /app/prisma/schema.prisma
         - action: rebuild
           path: ./stats-service/package.json
-  # --- END: NEW STATS SERVICE ---
 
+  notification-service:
+    build: ./notification-service
+    container_name: notification-service-dev
+    ports:
+      - "3011:3011"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    environment:
+      PORT: 3011
+      SERVICE_NAME: notification-service
+      NODE_ENV: development
+      KAFKA_BROKERS: kafka-dev:9092
+      GMAIL_USER: samir.harche.esi@gmail.com
+      GMAIL_APP_PASSWORD: rrtp uvtu dhkb xlzj
+      STORE_FRONTEND_URL: http://localhost:5173
+    command: npm run dev
+    develop:
+      watch:
+        - action: sync
+          path: ./notification-service/src
+          target: /app/src
+        - action: rebuild
+          path: ./notification-service/package.json
+ 
   auth-db:
     image: postgres:15-alpine
     container_name: auth-db
@@ -491,7 +520,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      
+
   stats-db:
     image: postgres:15-alpine
     container_name: stats-db
@@ -523,4 +552,4 @@ volumes:
   redis-data-dev:
   order-db-data:
   review-db-data:
-  stats-db-data: 
+  stats-db-data:

@@ -44,13 +44,17 @@ model User {
   id        String   @id @default(uuid())
   name      String
   email     String   @unique
-  password  String
+  password  String? // <-- MODIFIED: Made optional for invited users
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   isActive  Boolean  @default(true)
-  
-  // <-- NEW FIELD -->
+
   profileImage String?
+
+  // --- NEW FIELDS for invitation flow ---
+  invitationToken   String?   @unique
+  invitationExpires DateTime?
+  // --- END NEW FIELDS ---
 
   roleId    String
   role      Role     @relation(fields: [roleId], references: [id])

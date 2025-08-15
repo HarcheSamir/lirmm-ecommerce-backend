@@ -1,7 +1,7 @@
 // ===== FILE: auth-service/src/modules/user/user.routes.js =====
 
 const express = require('express');
-const { getAllUsers, getUserById, updateUser, deactivateUser, activateUser, getTotalUserCount} = require('./user.controller');
+const { inviteUser, getAllUsers, getUserById, updateUser, deactivateUser, activateUser, getTotalUserCount} = require('./user.controller');
 const authMiddleware = require('../../middlewares/auth');
 const hasPermission = require('../../middlewares/permission');
 
@@ -11,6 +11,9 @@ router.get('/internal/total-count', getTotalUserCount);
 
 router.use(authMiddleware);
 
+// --- NEW INVITATION ROUTE ---
+router.post('/invite', hasPermission('write:user'), inviteUser);
+// --- END NEW ROUTE ---
 
 // --- FIX: Use singular permission names ---
 router.get('/', hasPermission('read:user'), getAllUsers);
