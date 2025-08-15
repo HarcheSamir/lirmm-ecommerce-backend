@@ -22,8 +22,8 @@ spec:
     spec:
       containers:
       - name: zookeeper
-        image: confluentinc/cp-zookeeper:7.3.2
-        imagePullPolicy: IfNotPresent
+        image: localhost:5000/confluentinc/cp-zookeeper:7.3.2
+        imagePullPolicy: Always
         ports:
         - containerPort: 2181
         env:
@@ -66,8 +66,8 @@ spec:
     spec:
       containers:
       - name: kafka
-        image: confluentinc/cp-kafka:7.3.2
-        imagePullPolicy: IfNotPresent
+        image: localhost:5000/confluentinc/cp-kafka:7.3.2
+        imagePullPolicy: Always
         ports:
         - name: internal
           containerPort: 9092
@@ -126,8 +126,8 @@ spec:
     spec:
       containers:
       - name: elasticsearch
-        image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
-        imagePullPolicy: IfNotPresent
+        image: localhost:5000/docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+        imagePullPolicy: Always
         ports:
         - containerPort: 9200
         env:
@@ -188,8 +188,8 @@ spec:
     spec:
       containers:
       - name: redis
-        image: redis:7.2-alpine
-        imagePullPolicy: IfNotPresent
+        image: localhost:5000/redis:7.2-alpine
+        imagePullPolicy: Always
         ports:
         - containerPort: 6379
         volumeMounts:
@@ -234,8 +234,8 @@ spec:
     spec:
       containers:
       - name: auth-db
-        image: postgres:15-alpine
-        imagePullPolicy: IfNotPresent
+        image: localhost:5000/postgres:15-alpine
+        imagePullPolicy: Always
         ports:
         - containerPort: 5432
         env:
@@ -286,8 +286,8 @@ spec:
     spec:
       containers:
       - name: product-db
-        image: postgres:15-alpine
-        imagePullPolicy: IfNotPresent
+        image: localhost:5000/postgres:15-alpine
+        imagePullPolicy: Always
         ports:
         - containerPort: 5432
         env:
@@ -338,8 +338,8 @@ spec:
     spec:
       containers:
       - name: order-db
-        image: postgres:15-alpine
-        imagePullPolicy: IfNotPresent
+        image: localhost:5000/postgres:15-alpine
+        imagePullPolicy: Always
         ports:
         - containerPort: 5432
         env:
@@ -390,8 +390,8 @@ spec:
     spec:
       containers:
       - name: review-db
-        image: postgres:15-alpine
-        imagePullPolicy: IfNotPresent
+        image: localhost:5000/postgres:15-alpine
+        imagePullPolicy: Always
         ports:
         - containerPort: 5432
         env:
@@ -443,8 +443,8 @@ spec:
     spec:
       containers:
       - name: stats-db
-        image: postgres:15-alpine
-        imagePullPolicy: IfNotPresent
+        image: localhost:5000/postgres:15-alpine
+        imagePullPolicy: Always
         ports:
         - containerPort: 5432
         env:
