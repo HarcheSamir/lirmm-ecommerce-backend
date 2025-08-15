@@ -261,6 +261,7 @@ spec:
           value: "3000"
         - name: SERVICE_NAME
           value: "api-gateway"
+        # --- START: ADDED/UPDATED FOR K8S CONSISTENCY ---
         - name: AUTH_SERVICE_URL
           value: "http://auth-service-svc:3001"
         - name: PRODUCT_SERVICE_URL
@@ -279,6 +280,7 @@ spec:
           value: "http://payment-service-svc:3009"
         - name: STATS_SERVICE_URL
           value: "http://stats-service-svc:3010"
+        # --- END: ADDED/UPDATED FOR K8S CONSISTENCY ---
 ---
 apiVersion: v1
 kind: Service
@@ -595,8 +597,10 @@ spec:
           value: "http://auth-service-svc:3001"
         - name: PRODUCT_SERVICE_URL
           value: "http://product-service-svc:3003"
+        # --- START: NEW ENV VAR ---
         - name: PAYMENT_SERVICE_URL
           value: "http://payment-service-svc:3009"
+        # --- END: NEW ENV VAR ---
 ---
 apiVersion: v1
 kind: Service
@@ -656,6 +660,7 @@ spec:
         - name: ORDER_SERVICE_URL
           value: "http://order-service-svc:3007"
 ---
+# --- START: NEW PAYMENT SERVICE ---
 apiVersion: v1
 kind: Service
 metadata:
@@ -699,7 +704,9 @@ spec:
           value: "payment-service"
         - name: KAFKA_BROKERS
           value: "kafka-svc:9092"
+# --- END: NEW PAYMENT SERVICE ---
 ---
+# --- START: NEW STATS SERVICE ---
 apiVersion: v1
 kind: Service
 metadata:
