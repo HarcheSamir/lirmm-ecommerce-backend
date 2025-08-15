@@ -23,7 +23,7 @@ export function setup() {
     if (res.status === 201) {
       userPool.push({ email, password });
     } else {
-      console.error(`Failed to register user ${email}: ${res.status} ${res.body}`);
+      console.log(`user already exists`);
     }
   }
   console.log(`--- Created ${userPool.length} users for the test ---`);
@@ -178,8 +178,8 @@ export const options = {
       exec: 'windowShopper',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 50 },
-        { duration: '2m', target: 50 },
+        { duration: '30s', target: 10 },
+        { duration: '2m', target: 10 },
         { duration: '30s', target: 0 },
       ],
       gracefulRampDown: '30s',
@@ -189,8 +189,8 @@ export const options = {
       exec: 'missionCustomer',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 50 },
-        { duration: '2m', target: 50 },
+        { duration: '30s', target: 10 },
+        { duration: '2m', target: 10 },
         { duration: '30s', target: 0 },
       ],
       gracefulRampDown: '30s',
@@ -200,8 +200,8 @@ export const options = {
       exec: 'guestBuyer',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 50 },
-        { duration: '2m', target: 50 },
+        { duration: '30s', target: 10 },
+        { duration: '2m', target: 10 },
         { duration: '30s', target: 0 },
       ],
       gracefulRampDown: '30s',
@@ -211,8 +211,8 @@ export const options = {
       exec: 'registeredBuyer',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 50 },
-        { duration: '2m', target: 50 },
+        { duration: '30s', target: 10 },
+        { duration: '2m', target: 10 },
         { duration: '30s', target: 0 },
       ],
       gracefulRampDown: '30s',

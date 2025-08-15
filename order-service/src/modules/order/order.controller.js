@@ -76,95 +76,107 @@ const createOrder = async (req, res, next) => {
   const { items, shippingAddress, guestEmail, guestName, phone, paymentMethod, overrideCreatedAt } = req.body;
   const email = req.user?.email || guestEmail;
 
-  if (!email) return next(createError('An email address is required for all orders.', 400));
-  if (!phone) return next(createError('A phone number is required for all orders.', 400));
-  if (!Array.isArray(items) || items.length === 0) return next(createError('Order must contain at least one item.', 400));
-
-  const stockAdjustments = [];
-  const creationDate = overrideCreatedAt ? new Date(overrideCreatedAt) : undefined;
-  
-  // --- Step 1: Adjust Stock for all items BEFORE the transaction ---
-  try {
-    for (const item of items) {
-      const stockAdjustUrl = `${PRODUCT_SERVICE_URL}/stock/adjust/${item.variantId}`;
-      // Attempt to decrease stock
-      await axios.post(stockAdjustUrl, {
-        changeQuantity: -item.quantity,
-        type: 'ORDER_RESERVATION', // Use a specific type for this action
-        reason: `Reserving stock for potential order`,
-        timestamp: creationDate
-      });
-      // If successful, add it to a list for potential rollback
-      stockAdjustments.push({ variantId: item.variantId, quantity: item.quantity });
-    }
-  } catch (error) {
-    // If ANY stock adjustment fails, we stop immediately.
-    const message = error.response?.data?.message || "Insufficient stock or product service unavailable.";
-    return next(createError(message, 409)); // 409 Conflict is a good code for stock issues
+  if (!email) {
+    return next(createError('An email address is required for all orders.', 400));
+  }
+  if (!phone) {
+    return next(createError('A phone number is required for all orders.', 400));
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return next(createError('Order must contain at least one item.', 400));
   }
 
-  // --- Step 2: Create the Order in the Database ---
-  // This part is now fast because there are no network calls inside.
-  let finalOrder;
+  let createdOrderId;
   try {
-    finalOrder = await prisma.$transaction(async (tx) => {
+    createdOrderId = await prisma.$transaction(async (tx) => {
       const productIds = items.map(item => item.productId);
-      const localProducts = await tx.product.findMany({ where: { id: { in: productIds } } });
+      const localProducts = await tx.product.findMany({
+        where: { id: { in: productIds } }
+      });
       const localProductMap = new Map(localProducts.map(p => [p.id, p]));
-      
+
       let totalAmount = 0;
+      const creationDate = overrideCreatedAt ? new Date(overrideCreatedAt) : undefined;
+
+      const order = await tx.order.create({
+        data: {
+          userId: req.user?.id,
+          phone: phone,
+          guestEmail: req.user ? null : email,
+          guestName: req.user ? null : guestName,
+          shippingAddress,
+          paymentMethod,
+          totalAmount: 0,
+          status: 'PENDING',
+          createdAt: creationDate,
+          updatedAt: creationDate
+        }
+      });
+
       for (const item of items) {
-        if (!localProductMap.has(item.productId)) throw new Error(`Internal Error: Product ${item.productId} not found after stock check.`);
+        const localProduct = localProductMap.get(item.productId);
+        if (!localProduct) throw createError(`Product with ID ${item.productId} not found.`, 404);
+
+        const stockAdjustUrl = `${PRODUCT_SERVICE_URL}/stock/adjust/${item.variantId}`;
+        await axios.post(stockAdjustUrl, {
+          changeQuantity: -item.quantity,
+          type: 'ORDER',
+          reason: `Order placement: ${order.id}`,
+          relatedOrderId: order.id,
+          timestamp: creationDate
+        });
+
         totalAmount += (item.price * item.quantity);
+
+        await tx.orderItem.create({
+          data: {
+            orderId: order.id,
+            productId: item.productId,
+            variantId: item.variantId,
+            productName: localProduct.name,
+            variantAttributes: item.attributes || {},
+            sku: localProduct.sku,
+            imageUrl: localProduct.imageUrl,
+            priceAtTimeOfOrder: item.price,
+            quantity: item.quantity
+          }
+        });
       }
 
-      const orderData = {
-        userId: req.user?.id, phone, guestEmail: req.user ? null : email, guestName: req.user ? null : guestName,
-        shippingAddress, paymentMethod, totalAmount, status: 'PROCESSING',
-        createdAt: creationDate, updatedAt: creationDate
-      };
-      
-      const order = await tx.order.create({ data: orderData });
-
-      const orderItemsToCreate = items.map(item => {
-        const localProduct = localProductMap.get(item.productId);
-        return {
-          orderId: order.id, productId: item.productId, variantId: item.variantId,
-          productName: localProduct.name, variantAttributes: item.attributes || {},
-          sku: localProduct.sku, imageUrl: localProduct.imageUrl,
-          priceAtTimeOfOrder: item.price, quantity: item.quantity
-        };
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          totalAmount: totalAmount,
+        }
       });
 
-      await tx.orderItem.createMany({ data: orderItemsToCreate });
-      
-      return tx.order.findUnique({ where: { id: order.id }, include: { items: true } });
+      return order.id;
     });
-  } catch (dbError) {
-    // --- Step 3 (Compensation): Roll back stock if DB transaction fails ---
-    console.error(`CRITICAL: Database transaction failed for order after stock was reserved. Initiating rollback.`);
-    for (const adj of stockAdjustments) {
-      axios.post(`${PRODUCT_SERVICE_URL}/stock/adjust/${adj.variantId}`, {
-        changeQuantity: adj.quantity, // Note: Positive number to add stock back
-        type: 'ORDER_ROLLBACK',
-        reason: `Rolling back failed order transaction.`
-      }).catch(rollbackError => {
-        console.error(`FATAL: FAILED TO ROLL BACK STOCK for variant ${adj.variantId}. Manual intervention required.`);
-      });
+
+    const finalOrder = await prisma.order.findUnique({
+      where: { id: createdOrderId },
+      include: { items: true }
+    });
+
+    if (paymentMethod === 'CREDIT_CARD') {
+      try {
+        console.log(`Initiating payment for order ${finalOrder.id}`);
+        axios.post(`${PAYMENT_SERVICE_URL}/process`, {
+          orderId: finalOrder.id,
+          amount: finalOrder.totalAmount,
+          userEmail: email
+        });
+      } catch (paymentError) {
+        console.error(`Failed to initiate payment for order ${finalOrder.id}. The order remains PENDING. Error: ${paymentError.message}`);
+      }
     }
-    return next(createError(`Failed to save order: ${dbError.message}`, 500));
-  }
 
-  // --- Step 4: Initiate Payment (Non-critical side-effect) ---
-  if (paymentMethod === 'CREDIT_CARD') {
-    axios.post(`${PAYMENT_SERVICE_URL}/process`, {
-      orderId: finalOrder.id, amount: finalOrder.totalAmount, userEmail: email
-    }).catch(paymentError => {
-      console.error(`INFO: Order ${finalOrder.id} created, but payment initiation failed. Error: ${paymentError.message}`);
-    });
+    res.status(201).json(finalOrder);
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || 'A downstream service failed.';
+    const status = error.statusCode || error.response?.status || 503;
+    return next(createError(message, status));
   }
-
-  return res.status(201).json(finalOrder);
 };
 
 
