@@ -1,78 +1,74 @@
-#!/usr/bin/env bash
+#!/bin/bash
+set -e
 
-# CORRECTED SCRIPT - CONTAINS ALL CLUSTER & ISTIO LOGIC
-set -euo pipefail
+# --- Configuration ---
+CLUSTER_NAME="lirmm-dev-cluster"
+KIND_CONFIG_FILE="./kind-deployment/kind-cluster-config.yaml"
+APP_NAMESPACE="lirmm-services"
 
-# Configuration
-CLUSTER_NAME="${KIND_CLUSTER_NAME:-lirmm-dev-cluster}"
-KIND_CONFIG_FILE="${KIND_CONFIG_FILE:-./kind-deployment/kind-cluster-config.yaml}"
-APP_NAMESPACE="${APP_NAMESPACE:-lirmm-services}"
+# --- Helper Functions for modularity ---
 
-log() {
-  echo
-  echo "------------------------------------------------------------"
-  echo "--> $1"
-  echo "------------------------------------------------------------"
+create_cluster_and_install_istio() {
+    echo "--- Creating new Kind cluster: ${CLUSTER_NAME} ---"
+    kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
+
+    echo "--- Checking for istioctl in the PATH ---"
+    if ! command -v istioctl &> /dev/null; then
+        echo "FATAL: istioctl could not be found in the PATH. Please ensure it's available to Jenkins."
+        exit 1
+    fi
+
+    echo "--- THIS IS THE FIX: Installing Istio with the Ingress Gateway correctly configured from the start ---"
+    # This single command sets the gateway type to NodePort and assigns the http2 port (the one on port 80) to nodePort 30000.
+    # This is the robust way and removes the need for fragile patching later.
+    istioctl install --set profile=demo -y \
+        --set gateways.istio-ingressgateway.type=NodePort \
+        --set gateways.istio-ingressgateway.ports[1].name=http2 \
+        --set gateways.istio-ingressgateway.ports[1].port=80 \
+        --set gateways.istio-ingressgateway.ports[1].targetPort=8080 \
+        --set gateways.istio-ingressgateway.ports[1].nodePort=30000
+
+    echo "--- Waiting for Istio control plane to be ready ---"
+    kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=10m
+
+    echo "--- Istio core installation complete. The gateway is correctly configured. ---"
 }
 
-# Ensure tools are available
-command -v kind >/dev/null 2>&1 || { echo "FATAL: kind not found in PATH."; exit 1; }
-command -v kubectl >/dev/null 2>&1 || { echo "FATAL: kubectl not found in PATH."; exit 1; }
+install_istio_addons() {
+    echo "--- Installing Istio addons (Kiali, Prometheus, Grafana) ---"
+    ISTIO_DIR_PATH=$(dirname "$(dirname "$(which istioctl)")")
 
-# --- MAIN LOGIC ---
+    if [ -d "$ISTIO_DIR_PATH/samples/addons" ]; then
+        kubectl apply -f "$ISTIO_DIR_PATH/samples/addons/prometheus.yaml"
+        kubectl apply -f "$ISTIO_DIR_PATH/samples/addons/grafana.yaml"
+        kubectl apply -f "$ISTIO_DIR_PATH/samples/addons/kiali.yaml"
 
-log "Checking for existing Kind cluster '${CLUSTER_NAME}'"
+        echo "--- Waiting for selected addons to be ready ---"
+        kubectl wait --for=condition=Available deployment/prometheus -n istio-system --timeout=10m || echo "--- WARNING: Prometheus may not be fully ready ---"
+        kubectl wait --for=condition=Available deployment/grafana -n istio-system --timeout=10m || echo "--- WARNING: Grafana may not be fully ready ---"
+        kubectl wait --for=condition=Available deployment/kiali -n istio-system --timeout=10m || echo "--- WARNING: Kiali may not be fully ready ---"
+    else
+        echo "--- WARNING: Could not find Istio samples/addons directory at '$ISTIO_DIR_PATH/samples/addons'. Skipping addon installation. ---"
+    fi
+}
 
-if ! kind get clusters | grep -q "${CLUSTER_NAME}"; then
-  log "Cluster not found. Creating new cluster and installing Istio..."
-  log "Creating Kind cluster: ${CLUSTER_NAME}"
-  kind create cluster --name "${CLUSTER_NAME}" --config "${KIND_CONFIG_FILE}"
+setup_namespace() {
+    echo "--- Ensuring namespace '${APP_NAMESPACE}' exists and is labeled for Istio injection ---"
+    kubectl create namespace "${APP_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+    kubectl label namespace "${APP_NAMESPACE}" istio-injection=enabled --overwrite
+}
 
-  # Check for istioctl BEFORE doing anything else
-  if ! command -v istioctl &> /dev/null; then
-    echo "FATAL: istioctl not found in PATH. Please ensure ISTIO_BIN_DIR is set correctly in Jenkins."
-    exit 1
-  else
-    echo "Found istioctl version: $(istioctl version --remote=false)"
-  fi
+# --- Main Script Execution ---
 
-  log "Installing Istio (demo profile)"
-  istioctl install --set profile=demo -y
-
-  log "Waiting for Istio control plane to be ready..."
-  kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=10m
-
-  log "Configuring istio-ingressgateway service as NodePort..."
-  kubectl -n istio-system patch svc istio-ingressgateway --type='json' -p='[{"op": "replace", "path": "/spec/type", "value": "NodePort"}]'
-  kubectl -n istio-system patch svc istio-ingressgateway --type='json' -p='[{"op": "replace", "path": "/spec/ports/0/nodePort", "value": 30000}]'
-
-  log "Installing Istio addons (Kiali, Prometheus, Grafana)..."
-  # Find the installation directory of istioctl to locate the samples
-  ISTIOCTL_PATH=$(command -v istioctl)
-  ISTIO_BASE_DIR=$(dirname $(dirname ${ISTIOCTL_PATH}))
-  ADDONS_DIR="${ISTIO_BASE_DIR}/samples/addons"
-
-  if [ -d "${ADDONS_DIR}" ]; then
-      log "Applying Prometheus manifest..."
-      kubectl apply -f "${ADDONS_DIR}/prometheus.yaml"
-      log "Applying Grafana manifest..."
-      kubectl apply -f "${ADDONS_DIR}/grafana.yaml"
-      log "Applying Kiali manifest..."
-      kubectl apply -f "${ADDONS_DIR}/kiali.yaml"
-
-      log "Waiting for addons to be ready..."
-      kubectl wait --for=condition=Available deployment/prometheus -n istio-system --timeout=5m || echo "WARNING: Prometheus did not become ready in time."
-      kubectl wait --for=condition=Available deployment/grafana -n istio-system --timeout=5m || echo "WARNING: Grafana did not become ready in time."
-      kubectl wait --for=condition=Available deployment/kiali -n istio-system --timeout=5m || echo "WARNING: Kiali did not become ready in time."
-  else
-      echo "WARNING: Could not find Istio addons in ${ADDONS_DIR}. Skipping addon installation."
-  fi
+echo "--- Checking for existing Kind cluster '${CLUSTER_NAME}' ---"
+if ! kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
+    echo "--- Cluster not found. Starting Full Cluster and Istio Setup... ---"
+    create_cluster_and_install_istio
+    install_istio_addons
 else
-  log "Cluster '${CLUSTER_NAME}' already exists. Skipping cluster creation and Istio install."
+    echo "--- Cluster '${CLUSTER_NAME}' already exists. Skipping cluster creation and Istio installation. ---"
 fi
 
-log "Ensuring namespace '${APP_NAMESPACE}' exists and is labeled for Istio injection"
-kubectl create namespace "${APP_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
-kubectl label namespace "${APP_NAMESPACE}" istio-injection=enabled --overwrite=true
+setup_namespace
 
-log "Setup script finished successfully."
+echo "--- SETUP SCRIPT COMPLETE ---"
