@@ -3,7 +3,13 @@ tree -I "node_modules"
 find . -type f \
   \( \
     -name "docker-compose.yml" -o \
-    -path "*/auth-service/*"  \
+    -path "*/api-gateway/*"  -o \
+    -path "*/auth-service/*"  -o \
+    -path "*/product-service/*"  -o \
+    -path "*/order-service/*"  -o \
+    -path "*/notification-service/*"  -o \
+    -path "*/stats-service/*"  -o \
+    -path "*/search-service/*"   \
   \) \
   ! -path "*/node_modules/*" \
   ! -path "*/ai-controller/*" \

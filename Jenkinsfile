@@ -1,4 +1,4 @@
-// This is the final, correct application pipeline. It restarts ONLY the applications.
+// This is the final, correct application pipeline. It builds and pushes to a local registry.
 pipeline {
     agent { label 'wsl' }
 
@@ -8,25 +8,34 @@ pipeline {
         KIND_CLUSTER_NAME   = "lirmm-dev-cluster"
         APP_NAMESPACE       = 'lirmm-services'
         APP_MANIFEST_FILE   = './kind-deployment/app-manifests.yaml'
+        REGISTRY_HOST       = 'localhost:5000' // <-- ADDED for clarity and consistency
     }
 
     stages {
-        stage('Build & Load Application Images') {
+        stage('Build & Push Application Images to Local Registry') { // <-- STAGE RENAMED
             steps {
                 script {
-                    echo "--- Building and loading all application service images ---"
-                    // --- MODIFICATION: ADD NEW SERVICES ---
+                    echo "--- Building and pushing all application service images to local registry ---"
+                    // --- List of services is unchanged ---
                     def services = [
                         'api-gateway', 'auth-service', 'product-service', 'image-service',
                         'search-service', 'cart-service', 'order-service', 'review-service',
                         'payment-service', 'stats-service'
                     ]
-                    // --- END MODIFICATION ---
-
+                    
+                    // --- LOGIC CHANGED from 'kind load' to 'docker push' ---
                     services.each { service ->
-                        def imageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
-                        sh "docker build -t ${imageName} ./${service}"
-                        sh "kind load docker-image ${imageName} --name ${env.KIND_CLUSTER_NAME}"
+                        def baseImageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
+                        def registryImageName = "${env.REGISTRY_HOST}/${baseImageName}"
+
+                        echo "--- Building ${baseImageName} ---"
+                        sh "docker build -t ${baseImageName} ./${service}"
+
+                        echo "--- Tagging for registry: ${registryImageName} ---"
+                        sh "docker tag ${baseImageName} ${registryImageName}"
+                        
+                        echo "--- Pushing to local registry ---"
+                        sh "docker push ${registryImageName}"
                     }
                 }
             }
