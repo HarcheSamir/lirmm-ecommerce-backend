@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM localhost:5000/node:18-alpine
 
 RUN apk add --no-cache openssl
 
