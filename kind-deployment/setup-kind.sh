@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+
 CLUSTER_NAME="lirmm-dev-cluster"
 KIND_CONFIG_FILE="./kind-deployment/kind-cluster-config.yaml"
 APP_NAMESPACE="lirmm-services"
