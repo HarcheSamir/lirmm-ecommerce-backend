@@ -1,4 +1,4 @@
-// Jenkinsfile-Infrastructure (FINAL CORRECTED VERSION)
+// Jenkinsfile-Infrastructure (FINAL CORRECTED VERSION with RESET_DATA fix)
 pipeline {
     agent { label 'wsl' }
 
@@ -9,7 +9,7 @@ pipeline {
         KIND_CLUSTER_NAME     = "lirmm-dev-cluster"
         KIND_CONFIG_FILE      = "./kind-deployment/kind-cluster-config.yaml"
         KIND_SETUP_SCRIPT     = "./kind-deployment/setup-kind.sh"
-        ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
+        ISTIO_BIN_DIR         = '/home/samir/istio-1.20.3/bin' // Note: Update this path if your Istio version changes
         INFRA_IMAGES = """
             confluentinc/cp-zookeeper:7.3.2
             confluentinc/cp-kafka:7.3.2
@@ -68,14 +68,23 @@ pipeline {
                 script {
                     echo "--- RESET DATA ONLY MODE ---"
                     echo "Deleting all stateful service pods to wipe data (this is fast)..."
-                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=zookeeper --ignore-not-found=true"
-                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=kafka --ignore-not-found=true"
-                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=elasticsearch --ignore-not-found=true"
-                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=redis --ignore-not-found=true"
-                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l component=database --ignore-not-found=true"
-                    
+                    // Use labels for efficient deletion
+                    sh "kubectl delete pods -n ${APP_NAMESPACE} -l 'component in (zookeeper, kafka, elasticsearch, redis, database)' --ignore-not-found=true"
+
                     echo "Waiting for infrastructure to come back online..."
                     sh "kubectl wait --for=condition=available deployment -n ${APP_NAMESPACE} --all --timeout=10m"
+
+                    // =================================================================
+                    // === START: ADDED FIX for Prisma "table not found" errors      ===
+                    // =================================================================
+                    echo "--- Restarting application services to re-run migrations on fresh databases ---"
+                    sh "kubectl rollout restart deployment -n ${APP_NAMESPACE} -l app-type=microservice"
+
+                    echo "--- Waiting for application services to become available ---"
+                    sh "kubectl wait --for=condition=Available deployment -n ${APP_NAMESPACE} -l app-type=microservice --timeout=15m"
+                    // =================================================================
+                    // === END: ADDED FIX                                            ===
+                    // =================================================================
                 }
             }
         }
