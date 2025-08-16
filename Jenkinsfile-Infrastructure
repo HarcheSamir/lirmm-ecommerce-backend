@@ -1,4 +1,4 @@
-// Jenkinsfile-Infrastructure (FINAL CORRECTED VERSION with RESET_DATA fix)
+// Jenkinsfile-Infrastructure (Corrected ISTIO_BIN_DIR path)
 pipeline {
     agent { label 'wsl' }
 
@@ -9,7 +9,8 @@ pipeline {
         KIND_CLUSTER_NAME     = "lirmm-dev-cluster"
         KIND_CONFIG_FILE      = "./kind-deployment/kind-cluster-config.yaml"
         KIND_SETUP_SCRIPT     = "./kind-deployment/setup-kind.sh"
-        ISTIO_BIN_DIR         = '/home/samir/istio-1.20.3/bin' // Note: Update this path if your Istio version changes
+        // VVVV THIS IS THE LINE I FUCKED UP AND HAVE NOW CORRECTED VVVV
+        ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
         INFRA_IMAGES = """
             confluentinc/cp-zookeeper:7.3.2
             confluentinc/cp-kafka:7.3.2
@@ -74,17 +75,11 @@ pipeline {
                     echo "Waiting for infrastructure to come back online..."
                     sh "kubectl wait --for=condition=available deployment -n ${APP_NAMESPACE} --all --timeout=10m"
 
-                    // =================================================================
-                    // === START: ADDED FIX for Prisma "table not found" errors      ===
-                    // =================================================================
                     echo "--- Restarting application services to re-run migrations on fresh databases ---"
                     sh "kubectl rollout restart deployment -n ${APP_NAMESPACE} -l app-type=microservice"
 
                     echo "--- Waiting for application services to become available ---"
                     sh "kubectl wait --for=condition=Available deployment -n ${APP_NAMESPACE} -l app-type=microservice --timeout=15m"
-                    // =================================================================
-                    // === END: ADDED FIX                                            ===
-                    // =================================================================
                 }
             }
         }
