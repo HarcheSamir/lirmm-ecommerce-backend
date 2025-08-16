@@ -1,5 +1,4 @@
-// ===== FILE: product-service/src/modules/product/product.routes.js =====
-
+// product-service/src/modules/product/product.routes.js
 const express = require('express');
 const {
     createProduct,
@@ -14,6 +13,7 @@ const {
     addImagesToProduct,
     removeImagesFromProduct,
     resyncAllProducts,
+    getVariantDetails,
 } = require('./product.controller');
 const variantRoutes = require('../variant/variant.routes');
 const authMiddleware = require('../../middlewares/auth');
@@ -34,6 +34,7 @@ router.delete('/:id', authMiddleware, hasPermission('delete:product'), deletePro
 
 // --- Internal Routes ---
 router.post('/internal/resync-products', resyncAllProducts);
+router.post('/internal/variant-details', getVariantDetails); // <-- ADD THIS LINE
 
 // Routes for managing relationships
 router.post('/:id/categories', authMiddleware, hasPermission('update:product'), addCategoriesToProduct);

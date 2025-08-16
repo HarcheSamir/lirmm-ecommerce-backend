@@ -1,6 +1,8 @@
+// order-service/src/modules/order/order.controller.js
 const prisma = require('../../config/prisma');
 const axios = require('axios');
 const { faker } = require('@faker-js/faker');
+const { sendMessage } = require('../../kafka/producer');
 
 const PRODUCT_SERVICE_URL = process.env.PRODUCT_SERVICE_URL;
 const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL;
@@ -86,19 +88,28 @@ const createOrder = async (req, res, next) => {
     return next(createError('Order must contain at least one item.', 400));
   }
 
-  let createdOrderId;
   try {
-    createdOrderId = await prisma.$transaction(async (tx) => {
-      const productIds = items.map(item => item.productId);
-      const localProducts = await tx.product.findMany({
-        where: { id: { in: productIds } }
-      });
-      const localProductMap = new Map(localProducts.map(p => [p.id, p]));
-
       let totalAmount = 0;
-      const creationDate = overrideCreatedAt ? new Date(overrideCreatedAt) : undefined;
+      const orderItemsData = items.map(item => {
+        if (!item.productId || !item.productName || !item.sku) {
+            throw createError(`Incomplete product data for variant ${item.variantId} received from gateway.`, 500);
+        }
+        totalAmount += (parseFloat(item.price) * item.quantity);
+        return {
+          productId: item.productId,
+          variantId: item.variantId,
+          productName: item.productName,
+          variantAttributes: item.attributes || {},
+          sku: item.sku,
+          imageUrl: item.imageUrl,
+          priceAtTimeOfOrder: item.price,
+          costPriceAtTimeOfOrder: item.costPrice,
+          quantity: item.quantity
+        };
+      });
 
-      const order = await tx.order.create({
+      const creationDate = overrideCreatedAt ? new Date(overrideCreatedAt) : new Date();
+      const newOrder = await prisma.order.create({
         data: {
           userId: req.user?.id,
           phone: phone,
@@ -106,79 +117,41 @@ const createOrder = async (req, res, next) => {
           guestName: req.user ? null : guestName,
           shippingAddress,
           paymentMethod,
-          totalAmount: 0,
+          totalAmount: totalAmount,
           status: 'PENDING',
           createdAt: creationDate,
-          updatedAt: creationDate
-        }
-      });
-
-      for (const item of items) {
-        const localProduct = localProductMap.get(item.productId);
-        if (!localProduct) throw createError(`Product with ID ${item.productId} not found.`, 404);
-
-        const stockAdjustUrl = `${PRODUCT_SERVICE_URL}/stock/adjust/${item.variantId}`;
-        await axios.post(stockAdjustUrl, {
-          changeQuantity: -item.quantity,
-          type: 'ORDER',
-          reason: `Order placement: ${order.id}`,
-          relatedOrderId: order.id,
-          timestamp: creationDate
-        });
-
-        totalAmount += (item.price * item.quantity);
-
-        await tx.orderItem.create({
-          data: {
-            orderId: order.id,
-            productId: item.productId,
-            variantId: item.variantId,
-            productName: localProduct.name,
-            variantAttributes: item.attributes || {},
-            sku: localProduct.sku,
-            imageUrl: localProduct.imageUrl,
-            priceAtTimeOfOrder: item.price,
-            quantity: item.quantity
+          updatedAt: creationDate,
+          items: {
+              create: orderItemsData
           }
-        });
-      }
-
-      await tx.order.update({
-        where: { id: order.id },
-        data: {
-          totalAmount: totalAmount,
-        }
+        },
+        include: { items: true }
       });
 
-      return order.id;
-    });
-
-    const finalOrder = await prisma.order.findUnique({
-      where: { id: createdOrderId },
-      include: { items: true }
-    });
+    await sendMessage('ORDER_CREATED', newOrder, newOrder.id);
 
     if (paymentMethod === 'CREDIT_CARD') {
-      try {
-        console.log(`Initiating payment for order ${finalOrder.id}`);
-        axios.post(`${PAYMENT_SERVICE_URL}/process`, {
-          orderId: finalOrder.id,
-          amount: finalOrder.totalAmount,
-          userEmail: email
-        });
-      } catch (paymentError) {
-        console.error(`Failed to initiate payment for order ${finalOrder.id}. The order remains PENDING. Error: ${paymentError.message}`);
-      }
+        try {
+            console.log(`Initiating payment for order ${newOrder.id}`);
+            axios.post(`${PAYMENT_SERVICE_URL}/process`, {
+              orderId: newOrder.id,
+              amount: newOrder.totalAmount,
+              userEmail: email
+            });
+        } catch (paymentError) {
+            console.error(`Failed to initiate payment for order ${newOrder.id}. The order remains PENDING. Error: ${paymentError.message}`);
+        }
     }
 
-    res.status(201).json(finalOrder);
+    res.status(201).json(newOrder);
+
   } catch (error) {
-    const message = error.response?.data?.message || error.message || 'A downstream service failed.';
-    const status = error.statusCode || error.response?.status || 503;
+    console.error("Error creating order:", error);
+    const message = error.response?.data?.message || error.message || 'An internal error occurred.';
+    const status = error.statusCode || 500;
     return next(createError(message, status));
   }
 };
-
 
 const getOrderById = async (req, res, next) => {
   try {
@@ -261,14 +234,22 @@ const updateOrderStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    await prisma.order.update({
+    
+    const orderToUpdate = await prisma.order.findUnique({ where: { id } });
+    if (!orderToUpdate) {
+        return res.status(404).json({ message: 'Order not found' });
+    }
+
+    const updatedOrder = await prisma.order.update({
       where: { id },
-      data: { status }
-    });
-    const updatedOrder = await prisma.order.findUnique({
-      where: { id },
+      data: { status },
       include: { items: true }
     });
+    
+    if (status === 'CANCELLED' && orderToUpdate.status !== 'CANCELLED' && orderToUpdate.status !== 'FAILED') {
+        await sendMessage('ORDER_CANCELLED', updatedOrder, updatedOrder.id);
+    }
+
     const [enrichedOrder] = await enrichOrders([updatedOrder]);
     res.json(enrichedOrder);
   } catch (err) {
@@ -358,7 +339,7 @@ const seedGuestOrders = async (req, res, next) => {
 
                 const stock = tempStockMap.get(randomVariant.id);
                 const quantity = faker.number.int({ min: 1, max: Math.min(stock, 3) });
-                
+
                 orderItems.push({
                     productId: randomProduct.id,
                     variantId: randomVariant.id,
@@ -367,6 +348,7 @@ const seedGuestOrders = async (req, res, next) => {
                     sku: randomProduct.sku,
                     imageUrl: randomProduct.images.find(img => img.isPrimary)?.imageUrl || null,
                     priceAtTimeOfOrder: randomVariant.price,
+                    costPriceAtTimeOfOrder: randomVariant.costPrice,
                     quantity: quantity,
                 });
                 totalAmount += (parseFloat(randomVariant.price) * quantity);
@@ -426,9 +408,7 @@ const seedGuestOrders = async (req, res, next) => {
                     const stockAdjustUrl = `${PRODUCT_SERVICE_URL}/stock/adjust/${item.variantId}`;
                     await axios.post(stockAdjustUrl, {
                         changeQuantity: -item.quantity,
-                        // --- THIS IS THE FIX ---
-                        type: 'ORDER', 
-                        // --- END OF FIX ---
+                        type: 'ORDER',
                         reason: `Seeded order placement: ${order.id}`,
                         relatedOrderId: order.id,
                         timestamp: randomPastDate,
@@ -453,7 +433,6 @@ const seedGuestOrders = async (req, res, next) => {
         errors: errors.slice(0, 10), // Show first 10 errors
     });
 };
-
 
 module.exports = {
   createOrder,

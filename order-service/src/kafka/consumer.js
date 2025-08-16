@@ -1,11 +1,14 @@
+// order-service/src/kafka/consumer.js
 const { Kafka, logLevel } = require('kafkajs');
 const prisma = require('../config/prisma');
+const { sendMessage } = require('./producer');
 
 const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'kafka:9092').split(',');
 const SERVICE_NAME = process.env.SERVICE_NAME || 'order-service';
 const PRODUCT_TOPIC = 'product_events';
 const AUTH_TOPIC = 'auth_events';
 const PAYMENT_TOPIC = 'payment_events';
+const ORDER_TOPIC = 'order_events';
 
 const kafka = new Kafka({
     clientId: `${SERVICE_NAME}-consumer`,
@@ -101,6 +104,10 @@ const processMessage = async ({ topic, partition, message }) => {
                 dataToUpdate.status = 'FAILED';
                 dataToUpdate.paymentTransactionId = transactionId;
                 dataToUpdate.paymentFailureReason = reason;
+                const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true }});
+                if (order) {
+                    await sendMessage('ORDER_CANCELLED', order, order.id);
+                }
             }
 
             if (dataToUpdate.status) {
@@ -112,6 +119,21 @@ const processMessage = async ({ topic, partition, message }) => {
             }
         }
 
+        if (topic === ORDER_TOPIC && event.sourceService === 'product-service') {
+            if(event.type === 'ORDER_FAILED'){
+                const { orderId, reason } = event.payload;
+                console.log(`Order ${orderId} failed due to: ${reason}. Updating status to FAILED.`);
+                const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
+                if (order && order.status === 'PENDING') {
+                    await prisma.order.update({
+                        where: { id: orderId },
+                        data: { status: 'FAILED' }
+                    });
+                     // No need to send ORDER_CANCELLED here, as stock was never removed.
+                }
+            }
+        }
+
     } catch (error) {
         console.error(`Error processing Kafka message: ${error.message}`, error);
     }
@@ -120,8 +142,9 @@ const processMessage = async ({ topic, partition, message }) => {
 const connectConsumer = async () => {
     try {
         await consumer.connect();
-        await consumer.subscribe({ topics: [PRODUCT_TOPIC, AUTH_TOPIC, PAYMENT_TOPIC], fromBeginning: true });
-        console.log(`Kafka consumer subscribed to topics: [${PRODUCT_TOPIC}, ${AUTH_TOPIC}, ${PAYMENT_TOPIC}]`);
+        const topics = [PRODUCT_TOPIC, AUTH_TOPIC, PAYMENT_TOPIC, ORDER_TOPIC];
+        await consumer.subscribe({ topics, fromBeginning: true });
+        console.log(`Kafka consumer subscribed to topics: [${topics.join(', ')}]`);
 
         await consumer.run({ eachMessage: processMessage });
         console.log('Kafka consumer is running...');

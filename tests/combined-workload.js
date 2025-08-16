@@ -3,7 +3,7 @@
 import { check, sleep } from 'k6';
 import http from 'k6/http';
 
-const baseUrl = 'http://localhost:13000';
+const baseUrl = 'http://localhost:3000';
 
 // ==============================================================================
 //  SETUP FUNCTION
@@ -13,10 +13,12 @@ export function setup() {
   console.log('--- Setting up registered test user pool ---');
   const userPool = [];
   const userCount = 100;
-
+  const userSync = http.post(`${baseUrl}/auth/resync-users`) 
+  const categories = http.post(`${baseUrl}/products/categories/bulk`) 
+  const products = http.post(`${baseUrl}/products/bulk`)
   for (let i = 0; i < userCount; i++) {
     const email = `testuser${i}@loadtest.com`;
-    const password = 'password123';
+    const password = 'password';
     const registerPayload = JSON.stringify({ email, password, name: `Test User ${i}` });
     const headers = { 'Content-Type': 'application/json' };
     const res = http.post(`${baseUrl}/auth/register`, registerPayload, { headers });
@@ -112,7 +114,6 @@ export function guestBuyer() {
     productId: sel.product.id,
     variantId: sel.variant.id,
     quantity: 1, // Keep quantity at 1 for simplicity
-    price: sel.variant.price
   }));
 
   const guestEmail = `guest-${__VU}-${__ITER}@test.com`;
@@ -153,7 +154,6 @@ export function registeredBuyer(data) {
     productId: sel.product.id,
     variantId: sel.variant.id,
     quantity: 1,
-    price: sel.variant.price
   }));
 
   const orderPayload = JSON.stringify({ 

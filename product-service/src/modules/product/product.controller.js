@@ -1,3 +1,4 @@
+// product-service/src/modules/product/product.controller.js
 const prisma = require('../../config/prisma');
 const { sendMessage } = require('../../kafka/producer');
 const { products } = require('../../utils/seed')
@@ -12,14 +13,14 @@ const fetchAndFormatProductForKafka = async (productId) => {
         }
     });
     if (!product) { console.warn(`[Kafka Helper] Product ${productId} not found.`); return null; }
-    
+
     const categories = product.categories || [];
     const variants = product.variants || [];
     const images = product.images || [];
 
     const category_names = categories.map(pc => pc.category?.name).filter(Boolean);
     const category_slugs = categories.map(pc => pc.category?.slug).filter(Boolean);
-    
+
     const primaryImage = images.find(img => img.isPrimary === true) || images[0] || null;
 
     const kafkaPayload = {
@@ -61,6 +62,49 @@ const validateLeafCategories = async (tx, categoryIds) => {
     }
 };
 
+const getVariantDetails = async (req, res, next) => {
+    try {
+        const { variantIds } = req.body;
+        if (!Array.isArray(variantIds) || variantIds.length === 0) {
+            return res.status(400).json({ message: 'variantIds must be a non-empty array.' });
+        }
+
+        const variants = await prisma.variant.findMany({
+            where: {
+                id: { in: variantIds }
+            },
+            include: {
+                product: {
+                    include: {
+                        images: {
+                            where: { isPrimary: true },
+                            take: 1
+                        }
+                    }
+                }
+            }
+        });
+
+        const variantMap = variants.reduce((acc, variant) => {
+            const primaryImage = variant.product.images[0] || null;
+            acc[variant.id] = {
+                price: variant.price,
+                costPrice: variant.costPrice,
+                attributes: variant.attributes,
+                productId: variant.productId,
+                productName: variant.product.name,
+                sku: variant.product.sku,
+                imageUrl: primaryImage ? primaryImage.imageUrl : null
+            };
+            return acc;
+        }, {});
+
+        res.json(variantMap);
+    } catch (err) {
+        next(err);
+    }
+};
+
 const createManyProducts = async (req, res, next) => {
     try {
         const productsData = products;
@@ -76,10 +120,10 @@ const createManyProducts = async (req, res, next) => {
         let createdProductSummaries = [];
         await prisma.$transaction(async (tx) => {
             for (const productData of productsData) {
-                const { sku, name, description, isActive, variants: inputVariants, categoryIds, categorySlugs, images: inputImages } = productData;
+                const { sku, name, description, isActive, variants: inputVariants, categoryIds, categorySlugs, images: inputImages }= productData;
                 let finalCategoryIds = categoryIds || [];
                 if (categorySlugs && categorySlugs.length > 0) {
-                    const foundCategories = await tx.category.findMany({ where: { slug: { in: categorySlugs } }, select: { id: true, slug: true } });
+                    const foundCategories = await tx.category.findMany({ where: { slug: { in: categorySlugs } }, select: { id: true,slug: true } });
                     if (foundCategories.length !== categorySlugs.length) {
                         const notFoundSlugs = categorySlugs.filter(slug => !foundCategories.find(cat => cat.slug === slug));
                         throw { statusCode: 400, message: `The following category slugs do not exist: ${notFoundSlugs.join(', ')}` };
@@ -516,5 +560,6 @@ module.exports = {
     addImagesToProduct,
     removeImagesFromProduct,
     fetchAndFormatProductForKafka,
-    resyncAllProducts
+    resyncAllProducts,
+    getVariantDetails
 };

@@ -1,13 +1,14 @@
+// product-service/src/index.js
 const app = require('./config/app');
 const { connectProducer, disconnectProducer } = require('./kafka/producer');
-const { connectReviewConsumer, disconnectReviewConsumer } = require('./kafka/consumer');
+const { connectConsumer, disconnectConsumer } = require('./kafka/consumer');
 
 const PORT = process.env.PORT;
 
 const startServer = async () => {
     try {
         await connectProducer();
-        await connectReviewConsumer();
+        await connectConsumer();
         const server = app.listen(PORT, () => {
             console.log(`Product Service running on port ${PORT}`);
         });
@@ -16,7 +17,7 @@ const startServer = async () => {
             console.log(`${signal} received. Shutting down...`);
             server.close(async () => {
                 await disconnectProducer();
-                await disconnectReviewConsumer();
+                await disconnectConsumer();
                 console.log('HTTP server closed.');
             });
         };
@@ -26,7 +27,7 @@ const startServer = async () => {
     } catch (error) {
         console.error('Failed to start Product Service:', error);
         await disconnectProducer();
-        await disconnectReviewConsumer();
+        await disconnectConsumer();
         process.exit(1);
     }
 };

@@ -63,6 +63,7 @@ model OrderItem {
   sku                String
   imageUrl           String?
   priceAtTimeOfOrder Decimal @db.Decimal(10, 2)
+  costPriceAtTimeOfOrder Decimal? @db.Decimal(10, 2) // <-- ADD THIS LINE
   quantity           Int
   order              Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   @@index([orderId])
