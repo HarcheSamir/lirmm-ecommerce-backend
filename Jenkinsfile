@@ -20,9 +20,9 @@ pipeline {
                     def services = [
                         'api-gateway', 'auth-service', 'product-service', 'image-service',
                         'search-service', 'cart-service', 'order-service', 'review-service',
-                        'payment-service', 'stats-service'
+                        'payment-service', 'stats-service', 'notification-service'
                     ]
-                    
+
                     // --- LOGIC CHANGED from 'kind load' to 'docker push' ---
                     services.each { service ->
                         def baseImageName = "${env.IMAGE_PREFIX}/${service}:${env.IMAGE_TAG}"
@@ -33,7 +33,7 @@ pipeline {
 
                         echo "--- Tagging for registry: ${registryImageName} ---"
                         sh "docker tag ${baseImageName} ${registryImageName}"
-                        
+
                         echo "--- Pushing to local registry ---"
                         sh "docker push ${registryImageName}"
                     }
