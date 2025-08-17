@@ -34,17 +34,12 @@ app.get('/health', (req, res) => {
     res.status(200).json({ status: 'UP', service: process.env.SERVICE_NAME });
 });
 
-// --- DEDICATED ENRICHMENT MIDDLEWARE ---
+// --- DEDICATED ENRICHMENT MIDDLEWARE (FOR POST ONLY) ---
 const enrichOrderPayload = async (req, res, next) => {
     try {
-        if (req.method !== 'POST' || !req.body || !Array.isArray(req.body.items) || req.body.items.length === 0) {
-            return next();
-        }
-
         const variantIds = req.body.items.map(item => item.variantId);
         const variantDetailsUrl = `${serviceUrlMap['product-service']}/internal/variant-details`;
         const { data: variantData } = await axios.post(variantDetailsUrl, { variantIds });
-
         const enrichedItems = req.body.items.map(item => {
             const details = variantData[item.variantId];
             if (!details) {
@@ -52,13 +47,10 @@ const enrichOrderPayload = async (req, res, next) => {
             }
             return { ...item, ...details };
         });
-
         req.body = { ...req.body, items: enrichedItems };
-        
         next();
-
     } catch (error) {
-        console.error('[API Gateway] Enrichment Error:', error.message);
+        console.error('\n\n--- [API Gateway] FATAL ENRICHMENT ERROR ---', error.message);
         if (!res.headersSent) {
             const status = error.status || 502;
             res.status(status).json({ message: error.message || 'Failed to process order.' });
@@ -66,8 +58,7 @@ const enrichOrderPayload = async (req, res, next) => {
     }
 };
 
-
-// --- Route Definitions ---
+// --- Route Definitions for simple proxies (proven to work) ---
 const rootPathRewrite = (path) => ({ [`^${path}`]: '' });
 app.use('/auth', createProxyMiddleware({ target: serviceUrlMap['auth-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/auth') }));
 app.use('/products', createProxyMiddleware({ target: serviceUrlMap['product-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/products') }));
@@ -79,18 +70,36 @@ app.use('/payments', createProxyMiddleware({ target: serviceUrlMap['payment-serv
 app.use('/stats', createProxyMiddleware({ target: serviceUrlMap['stats-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/stats') }));
 
 
-// --- THE RELIABLE, AND CORRECT ORDER ROUTE CHAIN ---
-app.use(
+// ===================================================================
+// --- CORRECTED AND SIMPLIFIED ORDER ROUTING ---
+// ===================================================================
+
+// 1. A specific handler for POST /orders. This runs FIRST for POST requests.
+// It applies the body parser and enrichment middleware ONLY to this route.
+app.post(
     '/orders',
     express.json(),
     enrichOrderPayload,
     proxy(serviceUrlMap['order-service'], {
-        proxyReqBodyDecorator: function(bodyContent, srcReq) {
-            return srcReq.body;
+        proxyReqPathResolver: (req) => {
+            // Proxies POST /orders to POST / on the order-service
+            return '/';
         },
-        proxyReqPathResolver: function(req) {
-            return req.originalUrl.replace('/orders', '');
-        }
+        proxyReqBodyDecorator: (bodyContent, srcReq) => srcReq.body
+    })
+);
+
+// 2. A general handler for ALL other /orders requests (GET, PUT, DELETE).
+// This uses the simple, reliable proxy. It will not be executed for POST requests
+// because the handler above will have already finished the request.
+app.use(
+    '/orders',
+    createProxyMiddleware({
+        target: serviceUrlMap['order-service'],
+        changeOrigin: true,
+        pathRewrite: {
+            '^/orders': '', // This correctly rewrites /orders/123 to /123
+        },
     })
 );
 
