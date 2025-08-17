@@ -7,7 +7,6 @@ const proxy = require('express-http-proxy');
 const axios = require('axios');
 
 const app = express();
-// NO GLOBAL BODY PARSER.
 
 // --- Configuration ---
 const serviceUrlMap = {
@@ -70,12 +69,7 @@ app.use('/payments', createProxyMiddleware({ target: serviceUrlMap['payment-serv
 app.use('/stats', createProxyMiddleware({ target: serviceUrlMap['stats-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/stats') }));
 
 
-// ===================================================================
-// --- CORRECTED AND SIMPLIFIED ORDER ROUTING ---
-// ===================================================================
 
-// 1. A specific handler for POST /orders. This runs FIRST for POST requests.
-// It applies the body parser and enrichment middleware ONLY to this route.
 app.post(
     '/orders',
     express.json(),
@@ -89,9 +83,7 @@ app.post(
     })
 );
 
-// 2. A general handler for ALL other /orders requests (GET, PUT, DELETE).
-// This uses the simple, reliable proxy. It will not be executed for POST requests
-// because the handler above will have already finished the request.
+
 app.use(
     '/orders',
     createProxyMiddleware({
