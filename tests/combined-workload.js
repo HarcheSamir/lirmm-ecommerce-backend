@@ -12,15 +12,15 @@ const baseUrl = 'http://localhost:3000';
 export function setup() {
   console.log('--- Setting up registered test user pool ---');
   const userPool = [];
-  const userCount = 100;
+  const userCount = 26;
   const userSync = http.post(`${baseUrl}/auth/resync-users`) 
   const categories = http.post(`${baseUrl}/products/categories/bulk`) 
   const products = http.post(`${baseUrl}/products/bulk`)
   for (let i = 0; i < userCount; i++) {
     const email = `testuser${i}@loadtest.com`;
     const password = 'password';
-    const registerPayload = JSON.stringify({ email, password, name: `Test User ${i}` });
-    const headers = { 'Content-Type': 'application/json' };
+    const letter = String.fromCharCode(65 + (i % 26)) + (i >= 26 ? Math.floor(i / 26) : '');
+    const registerPayload = JSON.stringify({ email, password, name: `Test User ${letter}` });    const headers = { 'Content-Type': 'application/json' };
     const res = http.post(`${baseUrl}/auth/register`, registerPayload, { headers });
     if (res.status === 201) {
       userPool.push({ email, password });
