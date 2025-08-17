@@ -1,3 +1,5 @@
+// ./auth-service/src/modules/user/user.controller.js
+
 const prisma = require('../../config/prisma');
 const { sendMessage } = require('../../kafka/producer');
 const crypto = require('crypto');
@@ -84,16 +86,34 @@ const getAllUsers = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
+    const { roleId, isActive, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
     const skip = (page - 1) * limit;
+
+    const where = {};
+    if (roleId) {
+      where.roleId = roleId;
+    }
+    if (isActive !== undefined) {
+      where.isActive = isActive === 'true';
+    }
+
+    const orderBy = {};
+    const validSortByFields = ['name', 'email', 'createdAt'];
+    if (validSortByFields.includes(sortBy)) {
+        orderBy[sortBy] = sortOrder.toLowerCase() === 'asc' ? 'asc' : 'desc';
+    } else {
+        orderBy['createdAt'] = 'desc'; // Default sort
+    }
 
     const [users, total] = await prisma.$transaction([
       prisma.user.findMany({
+        where,
         skip,
         take: limit,
         select: userSelectDetailed,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
       }),
-      prisma.user.count(),
+      prisma.user.count({ where }),
     ]);
 
     const formattedUsers = users.map(user => ({
@@ -207,7 +227,6 @@ const updateUser = async (req, res, next) => {
   }
 };
 
-// --- MODIFIED AND IMPROVED FUNCTION ---
 const deactivateUser = async (req, res, next) => {
     try {
         const { id: userIdToDelete } = req.params;
@@ -222,12 +241,10 @@ const deactivateUser = async (req, res, next) => {
             return res.status(404).json({ message: "User not found." });
         }
 
-        // Case 1: The user is a pending invite. Hard delete to revoke the invitation.
         if (!targetUser.isActive && targetUser.invitationToken) {
             await prisma.user.delete({ where: { id: userIdToDelete } });
             console.log(`Revoked invitation and hard-deleted pending user: ${userIdToDelete}`);
         }
-        // Case 2: The user is an active user. Deactivate them (soft delete).
         else {
             if (userIdToDelete === requestingUserId) {
               return res.status(403).json({ message: 'Forbidden: You cannot deactivate your own account.' });
@@ -242,7 +259,6 @@ const deactivateUser = async (req, res, next) => {
              console.log(`Deactivated (soft-deleted) active user: ${userIdToDelete}`);
         }
 
-        // Send Kafka event for both hard and soft deletes.
         await sendMessage('USER_DELETED', { id: userIdToDelete });
 
         res.status(204).send();
@@ -253,7 +269,6 @@ const deactivateUser = async (req, res, next) => {
         next(err);
     }
 };
-// --- END MODIFICATION ---
 
 const activateUser = async (req, res, next) => {
     try {

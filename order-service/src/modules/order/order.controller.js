@@ -22,56 +22,16 @@ const createError = (message, statusCode) => {
   return error;
 };
 
-const enrichOrders = async (orders) => {
-  if (!orders || orders.length === 0) return [];
-
-  const userIds = [...new Set(orders.map(o => o.userId).filter(Boolean))];
-  let userMap = new Map();
-
-  if (userIds.length > 0) {
-    try {
-        const localUsers = await prisma.denormalizedUser.findMany({
-            where: { id: { in: userIds } }
-        });
-        localUsers.forEach(u => userMap.set(u.id, u));
-    } catch (e) {
-      console.error("Failed to enrich orders with denormalized user data:", e.message);
-    }
-  }
-
-  const productIds = [...new Set(orders.flatMap(o => o.items.map(i => i.productId)))];
-  let productMap = new Map();
-
-  if (productIds.length > 0) {
-    try {
-      const localProducts = await prisma.product.findMany({
-        where: { id: { in: productIds } }
-      });
-      localProducts.forEach(p => productMap.set(p.id, p));
-    } catch (e) {
-      console.error("Failed to enrich orders with local product data:", e.message);
-    }
-  }
-
-  return orders.map(order => {
-    const user = order.userId ? userMap.get(order.userId) : null;
-    const enrichedItems = order.items.map(item => {
-      const product = productMap.get(item.productId);
-      return {
-        ...item,
-        productName: product?.name || item.productName,
-        sku: product?.sku || item.sku,
-        imageUrl: product?.imageUrl || item.imageUrl,
-      };
-    });
-    return {
-      ...order,
-      items: enrichedItems,
-      customerName: user?.name || order.guestName || 'Guest',
-      customerEmail: user?.email || order.guestEmail,
-      customerAvatar: user?.profileImage || null
-    };
-  });
+// Helper to format the order output consistently
+const formatOrderResponse = (order) => {
+  if (!order) return null;
+  const { user, ...restOfOrder } = order;
+  return {
+    ...restOfOrder,
+    customerName: user?.name || order.guestName || 'Guest',
+    customerEmail: user?.email || order.guestEmail,
+    customerAvatar: user?.profileImage || null
+  };
 };
 
 const createOrder = async (req, res, next) => {
@@ -125,7 +85,7 @@ const createOrder = async (req, res, next) => {
               create: orderItemsData
           }
         },
-        include: { items: true }
+        include: { items: true, user: true }
       });
 
     await sendMessage('ORDER_CREATED', newOrder, newOrder.id);
@@ -143,7 +103,7 @@ const createOrder = async (req, res, next) => {
         }
     }
 
-    res.status(201).json(newOrder);
+    res.status(201).json(formatOrderResponse(newOrder));
 
   } catch (error) {
     console.error("Error creating order:", error);
@@ -158,13 +118,12 @@ const getOrderById = async (req, res, next) => {
     const { id } = req.params;
     const order = await prisma.order.findUnique({
       where: { id: id },
-      include: { items: true },
+      include: { items: true, user: true },
     });
     if (!order) {
       return res.status(404).json({ message: 'Order not found.' });
     }
-    const [enrichedOrder] = await enrichOrders([order]);
-    return res.json(enrichedOrder);
+    return res.json(formatOrderResponse(order));
   } catch (err) {
     next(err);
   }
@@ -172,21 +131,53 @@ const getOrderById = async (req, res, next) => {
 
 const getAllOrders = async (req, res, next) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
     const skip = (page - 1) * limit;
+
+    const { status, paymentMethod, search, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+
+    const where = {};
+    if (status) {
+      where.status = status;
+    }
+    if (paymentMethod) {
+      where.paymentMethod = paymentMethod;
+    }
+    if (search) {
+      where.OR = [
+        { id: { contains: search, mode: 'insensitive' } },
+        { guestName: { contains: search, mode: 'insensitive' } },
+        { guestEmail: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search, mode: 'insensitive' } },
+        { items: { some: { productName: { contains: search, mode: 'insensitive' } } } },
+        { user: { name: { contains: search, mode: 'insensitive' } } },
+        { user: { email: { contains: search, mode: 'insensitive' } } }
+      ];
+    }
+
+    const orderBy = {};
+    const validSortFields = ['createdAt', 'updatedAt', 'totalAmount'];
+    if (validSortFields.includes(sortBy)) {
+        orderBy[sortBy] = sortOrder.toLowerCase() === 'asc' ? 'asc' : 'desc';
+    } else {
+        orderBy['createdAt'] = 'desc';
+    }
+
     const [orders, total] = await prisma.$transaction([
       prisma.order.findMany({
+        where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
-        include: { items: true }
+        orderBy,
+        include: { items: true, user: true }
       }),
-      prisma.order.count()
+      prisma.order.count({ where })
     ]);
-    const enrichedData = await enrichOrders(orders);
+    
+    const formattedData = orders.map(formatOrderResponse);
     res.json({
-      data: enrichedData,
+      data: formattedData,
       pagination: {
         total,
         page,
@@ -211,13 +202,13 @@ const getMyOrders = async (req, res, next) => {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { items: true }
+        include: { items: true, user: true }
       }),
       prisma.order.count({ where })
     ]);
-    const enrichedData = await enrichOrders(orders);
+    const formattedData = orders.map(formatOrderResponse);
     res.json({
-      data: enrichedData,
+      data: formattedData,
       pagination: {
         total,
         page,
@@ -234,7 +225,7 @@ const updateOrderStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    
+
     const orderToUpdate = await prisma.order.findUnique({ where: { id } });
     if (!orderToUpdate) {
         return res.status(404).json({ message: 'Order not found' });
@@ -243,15 +234,14 @@ const updateOrderStatus = async (req, res, next) => {
     const updatedOrder = await prisma.order.update({
       where: { id },
       data: { status },
-      include: { items: true }
+      include: { items: true, user: true }
     });
-    
+
     if (status === 'CANCELLED' && orderToUpdate.status !== 'CANCELLED' && orderToUpdate.status !== 'FAILED') {
         await sendMessage('ORDER_CANCELLED', updatedOrder, updatedOrder.id);
     }
 
-    const [enrichedOrder] = await enrichOrders([updatedOrder]);
-    res.json(enrichedOrder);
+    res.json(formatOrderResponse(updatedOrder));
   } catch (err) {
     next(err);
   }
@@ -265,13 +255,12 @@ const getGuestOrder = async (req, res, next) => {
     }
     const order = await prisma.order.findFirst({
       where: { id: orderId, guestEmail: email },
-      include: { items: true }
+      include: { items: true, user: true }
     });
     if (!order) {
       return res.status(404).json({ message: 'Order not found or email does not match.' });
     }
-    const [enrichedOrder] = await enrichOrders([order]);
-    res.json(enrichedOrder);
+    res.json(formatOrderResponse(order));
   } catch (err) {
     next(err);
   }
