@@ -71,6 +71,7 @@ spec:
     metadata:
       labels:
         app: api-gateway
+        version: v1
     spec:
       containers:
       - name: api-gateway
@@ -135,6 +136,7 @@ spec:
     metadata:
       labels:
         app: auth-service
+        version: v1
     spec:
       initContainers:
       - name: auth-db-migrate
@@ -192,6 +194,7 @@ spec:
       labels:
         app: product-service-v1 # <-- UNIQUE LABEL
         component: product-service # <-- COMMON LABEL FOR THE SERVICE
+        version: v1
     spec:
       initContainers:
       - name: product-db-migrate
@@ -236,6 +239,7 @@ spec:
       labels:
         app: product-service-v2 # <-- UNIQUE LABEL
         component: product-service # <-- COMMON LABEL FOR THE SERVICE
+        version: v2
     spec:
       initContainers:
       - name: product-db-migrate
@@ -280,6 +284,7 @@ spec:
       labels:
         app: product-service-v3 # <-- UNIQUE LABEL
         component: product-service # <-- COMMON LABEL FOR THE SERVICE
+        version: v3
     spec:
       initContainers:
       - name: product-db-migrate
@@ -336,6 +341,7 @@ spec:
     metadata:
       labels:
         app: image-service
+        version: v1
     spec:
       containers:
       - name: image-service
@@ -388,6 +394,7 @@ spec:
     metadata:
       labels:
         app: search-service
+        version: v1
       annotations:
         traffic.sidecar.istio.io/excludeOutboundPorts: "9092"
     spec:
@@ -436,6 +443,7 @@ spec:
     metadata:
       labels:
         app: cart-service
+        version: v1
     spec:
       containers:
       - name: cart-service
@@ -482,6 +490,7 @@ spec:
     metadata:
       labels:
         app: order-service
+        version: v1
     spec:
       initContainers:
       - name: order-db-migrate
@@ -544,6 +553,7 @@ spec:
     metadata:
       labels:
         app: review-service
+        version: v1
     spec:
       initContainers:
       - name: review-db-migrate
@@ -603,6 +613,7 @@ spec:
     metadata:
       labels:
         app: payment-service
+        version: v1
     spec:
       containers:
       - name: payment-service
@@ -649,6 +660,7 @@ spec:
     metadata:
       labels:
         app: stats-service
+        version: v1
     spec:
       initContainers:
       - name: stats-db-migrate
@@ -708,6 +720,7 @@ spec:
     metadata:
       labels:
         app: notification-service
+        version: v1
     spec:
       containers:
       - name: notification-service
