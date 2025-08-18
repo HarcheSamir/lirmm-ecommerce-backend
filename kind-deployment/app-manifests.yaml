@@ -169,7 +169,7 @@ metadata:
   namespace: lirmm-services
 spec:
   selector:
-    app: product-service
+    component: product-service
   ports:
   - name: http
     port: 3003
@@ -178,7 +178,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: product-service-deployment
+  name: product-service-v1-deployment # <-- VERSION 1
   namespace: lirmm-services
   labels:
     app-type: microservice
@@ -186,11 +186,100 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: product-service
+      app: product-service-v1 # <-- UNIQUE SELECTOR
   template:
     metadata:
       labels:
-        app: product-service
+        app: product-service-v1 # <-- UNIQUE LABEL
+        component: product-service # <-- COMMON LABEL FOR THE SERVICE
+    spec:
+      initContainers:
+      - name: product-db-migrate
+        image: localhost:5000/lirmm-ecommerce/product-service:latest
+        imagePullPolicy: Always
+        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma"]
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
+      containers:
+      - name: product-service
+        image: localhost:5000/lirmm-ecommerce/product-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3003
+        env:
+        - name: PORT
+          value: "3003"
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
+        - name: SERVICE_NAME
+          value: "product-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"
+        - name: AUTH_SERVICE_URL
+          value: "http://auth-service-svc:3001"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service-v2-deployment # <-- VERSION 2
+  namespace: lirmm-services
+  labels:
+    app-type: microservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-service-v2 # <-- UNIQUE SELECTOR
+  template:
+    metadata:
+      labels:
+        app: product-service-v2 # <-- UNIQUE LABEL
+        component: product-service # <-- COMMON LABEL FOR THE SERVICE
+    spec:
+      initContainers:
+      - name: product-db-migrate
+        image: localhost:5000/lirmm-ecommerce/product-service:latest
+        imagePullPolicy: Always
+        command: ["sh", "-c", "npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss && npx prisma db seed --schema=./prisma/schema.prisma"]
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
+      containers:
+      - name: product-service
+        image: localhost:5000/lirmm-ecommerce/product-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3003
+        env:
+        - name: PORT
+          value: "3003"
+        - name: DATABASE_URL
+          value: "postgresql://postgres:postgres@product-db-svc:5432/product_db?schema=public"
+        - name: SERVICE_NAME
+          value: "product-service"
+        - name: KAFKA_BROKERS
+          value: "kafka-svc:9092"
+        - name: AUTH_SERVICE_URL
+          value: "http://auth-service-svc:3001"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service-v3-deployment # <-- VERSION 3
+  namespace: lirmm-services
+  labels:
+    app-type: microservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-service-v3 # <-- UNIQUE SELECTOR
+  template:
+    metadata:
+      labels:
+        app: product-service-v3 # <-- UNIQUE LABEL
+        component: product-service # <-- COMMON LABEL FOR THE SERVICE
     spec:
       initContainers:
       - name: product-db-migrate
