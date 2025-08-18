@@ -2,14 +2,15 @@ import requests
 import csv
 import time
 from datetime import datetime, timezone
+import os # <-- CHANGED: Import the 'os' module
 
 # --- Configuration ---
 PROMETHEUS_URL = "http://localhost:9090"
+OUTPUT_DIR = "prometheus-stats" # <-- CHANGED: Define the output directory name
 
 # This dictionary holds the final, validated queries.
 QUERIES = {
     "rps_per_pod": {
-        # This query correctly uses destination_workload, which is now unique for each pod.
         "query": 'sum(rate(istio_requests_total{reporter="destination", destination_workload=~"product-service-v.-deployment", namespace="lirmm-services"}[1m])) by (destination_workload)',
         "fields": ['timestamp', 'pod', 'value'],
         "label": "destination_workload"
@@ -20,8 +21,6 @@ QUERIES = {
         "label": "destination_workload"
     },
     "cpu_usage_per_pod_cores": {
-        # THIS IS THE CORRECTED QUERY
-        # The regex "product-service-v.-deployment-.*" matches v1, v2, and v3 pods.
         "query": 'sum(rate(container_cpu_usage_seconds_total{namespace="lirmm-services", pod=~"product-service-v.-deployment-.*"}[1m])) by (pod)',
         "fields": ['timestamp', 'pod', 'value'],
         "label": "pod"
@@ -56,6 +55,12 @@ def query_prometheus(query):
 def main(experiment_name="baseline"):
     """Main function to run the data collection."""
     print(f"--- Starting data collection for '{experiment_name}' experiment ---")
+    
+    # --- CHANGED: Create the output directory if it doesn't exist ---
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    print(f"Saving output files to: ./{OUTPUT_DIR}/")
+    # --- END CHANGE ---
+
     start_time = time.time()
     end_time = start_time + EXPERIMENT_DURATION_SECONDS
 
@@ -63,7 +68,9 @@ def main(experiment_name="baseline"):
     try:
         # Create CSV files and write headers
         for name, details in QUERIES.items():
-            filename = f"{experiment_name}_{name}.csv"
+            # --- CHANGED: Prepend the directory to the filename ---
+            filename = os.path.join(OUTPUT_DIR, f"{experiment_name}_{name}.csv")
+            # --- END CHANGE ---
             f = open(filename, 'w', newline='')
             writer = csv.DictWriter(f, fieldnames=details['fields'])
             writer.writeheader()
@@ -105,7 +112,7 @@ def main(experiment_name="baseline"):
             if 'file' in data and data['file']:
                 data['file'].close()
         
-        print(f"--- Data collection for '{experiment_name}' finished. Results saved to {experiment_name}_*.csv files. ---")
+        print(f"--- Data collection for '{experiment_name}' finished. Results saved inside ./{OUTPUT_DIR}/ directory. ---")
 
 if __name__ == "__main__":
     main("baseline")
