@@ -5,7 +5,7 @@ const morgan = require('morgan');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const proxy = require('express-http-proxy');
 const axios = require('axios');
-
+const http = require('http'); 
 const app = express();
 
 // --- Configuration ---
@@ -59,7 +59,7 @@ const enrichOrderPayload = async (req, res, next) => {
 
 // --- Route Definitions for simple proxies (proven to work) ---
 const rootPathRewrite = (path) => ({ [`^${path}`]: '' });
-app.use('/auth', createProxyMiddleware({ target: serviceUrlMap['auth-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/auth') }));
+app.use('/auth', createProxyMiddleware({ target: serviceUrlMap['auth-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/auth'),agent: new http.Agent({ keepAlive: false }) }));
 app.use('/products', createProxyMiddleware({ target: serviceUrlMap['product-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/products') }));
 app.use('/images', createProxyMiddleware({ target: serviceUrlMap['image-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/images') }));
 app.use('/search', createProxyMiddleware({ target: serviceUrlMap['search-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/search') }));

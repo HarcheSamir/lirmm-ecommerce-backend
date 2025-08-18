@@ -3,7 +3,7 @@
 import { check, sleep } from 'k6';
 import http from 'k6/http';
 
-const baseUrl = 'http://localhost:3000';
+const baseUrl = 'http://localhost:13000';
 
 // ==============================================================================
 //  SETUP FUNCTION
@@ -178,9 +178,9 @@ export const options = {
       exec: 'windowShopper',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 10 },
-        { duration: '2m', target: 10 },
-        { duration: '30s', target: 0 },
+        { duration: '1m', target: 10 },   // Ramp-up to 10 users over 1 minute
+        { duration: '28m', target: 10 },  // Stay at 10 users for 28 minutes
+        { duration: '1m', target: 0 },    // Ramp-down to 0 users over 1 minute
       ],
       gracefulRampDown: '30s',
     },
@@ -189,9 +189,9 @@ export const options = {
       exec: 'missionCustomer',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 10 },
-        { duration: '2m', target: 10 },
-        { duration: '30s', target: 0 },
+        { duration: '1m', target: 10 },   // Ramp-up to 10 users over 1 minute
+        { duration: '28m', target: 10 },  // Stay at 10 users for 28 minutes
+        { duration: '1m', target: 0 },    // Ramp-down to 0 users over 1 minute
       ],
       gracefulRampDown: '30s',
     },
@@ -200,9 +200,9 @@ export const options = {
       exec: 'guestBuyer',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 10 },
-        { duration: '2m', target: 10 },
-        { duration: '30s', target: 0 },
+        { duration: '1m', target: 10 },   // Ramp-up to 10 users over 1 minute
+        { duration: '28m', target: 10 },  // Stay at 10 users for 28 minutes
+        { duration: '1m', target: 0 },    // Ramp-down to 0 users over 1 minute
       ],
       gracefulRampDown: '30s',
     },
@@ -211,9 +211,9 @@ export const options = {
       exec: 'registeredBuyer',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 10 },
-        { duration: '2m', target: 10 },
-        { duration: '30s', target: 0 },
+        { duration: '1m', target: 10 },   // Ramp-up to 10 users over 1 minute
+        { duration: '28m', target: 10 },  // Stay at 10 users for 28 minutes
+        { duration: '1m', target: 0 },    // Ramp-down to 0 users over 1 minute
       ],
       gracefulRampDown: '30s',
     },

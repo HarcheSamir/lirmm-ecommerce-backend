@@ -2,7 +2,11 @@ tree -I "node_modules"
 
 find . -type f \
   \( \
-    -path "*/order-service/*"   \
+    -path "*/api-gateway/*"  -o \
+    -path "*/product-service/*"  -o \
+    -path "*/order-service/*" -o  \
+    -path "*/search-service/*" -o  \
+    -path "*/cart-service/*"  \
   \) \
   ! -path "*/node_modules/*" \
   ! -path "*/ai-controller/*" \
