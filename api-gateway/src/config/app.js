@@ -59,7 +59,7 @@ const enrichOrderPayload = async (req, res, next) => {
 
 // --- Route Definitions for simple proxies (proven to work) ---
 const rootPathRewrite = (path) => ({ [`^${path}`]: '' });
-app.use('/auth', createProxyMiddleware({ target: serviceUrlMap['auth-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/auth'),agent: new http.Agent({ keepAlive: false }) }));
+app.use('/auth', createProxyMiddleware({ target: serviceUrlMap['auth-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/auth') }));
 app.use('/products', createProxyMiddleware({ target: serviceUrlMap['product-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/products') }));
 app.use('/images', createProxyMiddleware({ target: serviceUrlMap['image-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/images') }));
 app.use('/search', createProxyMiddleware({ target: serviceUrlMap['search-service'], changeOrigin: true, pathRewrite: rootPathRewrite('/search') }));
