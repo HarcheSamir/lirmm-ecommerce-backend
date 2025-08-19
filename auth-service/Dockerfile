@@ -1,5 +1,7 @@
 FROM localhost:5000/node:18-alpine
 
+RUN apk add --no-cache openssl
+
 RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
