@@ -10,6 +10,15 @@ create_cluster_and_install_istio() {
     echo "--- Creating new Kind cluster: ${CLUSTER_NAME} ---"
     kind create cluster --name "${CLUSTER_NAME}" --config="${KIND_CONFIG_FILE}"
 
+    # --- START: ISTIO CORE RELIABILITY FIX ---
+    echo "--- Pre-pulling and loading critical Istio images into Kind cluster ---"
+    ISTIO_VERSION="1.26.3"
+    docker pull docker.io/istio/pilot:${ISTIO_VERSION}
+    docker pull docker.io/istio/proxyv2:${ISTIO_VERSION}
+    kind load docker-image docker.io/istio/pilot:${ISTIO_VERSION} --name "${CLUSTER_NAME}"
+    kind load docker-image docker.io/istio/proxyv2:${ISTIO_VERSION} --name "${CLUSTER_NAME}"
+    # --- END: ISTIO CORE RELIABILITY FIX ---
+
     echo "--- Checking for istioctl in the PATH ---"
     if ! command -v istioctl &> /dev/null; then
         echo "FATAL: istioctl could not be found in the PATH. Please ensure it's available to Jenkins."
@@ -47,6 +56,25 @@ EOF
 install_istio_addons() {
     echo "--- Installing Istio addons (Kiali, Prometheus, Grafana) ---"
     ISTIO_DIR_PATH=$(dirname "$(dirname "$(which istioctl)")")
+
+    # --- START: VERIFIED ISTIO ADDONS RELIABILITY FIX ---
+    # Pre-load addon images based on the exact versions in your local Istio installation files.
+    echo "--- Pre-pulling and loading verified addon images into Kind cluster ---"
+    
+    # Images for Prometheus (from your prometheus.yaml)
+    docker pull ghcr.io/prometheus-operator/prometheus-config-reloader:v0.81.0
+    docker pull prom/prometheus:v3.2.1
+    kind load docker-image ghcr.io/prometheus-operator/prometheus-config-reloader:v0.81.0 --name "${CLUSTER_NAME}"
+    kind load docker-image prom/prometheus:v3.2.1 --name "${CLUSTER_NAME}"
+    
+    # Image for Grafana (from your grafana.yaml)
+    docker pull docker.io/grafana/grafana:11.3.1
+    kind load docker-image docker.io/grafana/grafana:11.3.1 --name "${CLUSTER_NAME}"
+    
+    # Image for Kiali (from your kiali.yaml)
+    docker pull quay.io/kiali/kiali:v2.8
+    kind load docker-image quay.io/kiali/kiali:v2.8 --name "${CLUSTER_NAME}"
+    # --- END: VERIFIED ISTIO ADDONS RELIABILITY FIX ---
 
     if [ -d "$ISTIO_DIR_PATH/samples/addons" ]; then
         kubectl apply -f "$ISTIO_DIR_PATH/samples/addons/kiali.yaml"
