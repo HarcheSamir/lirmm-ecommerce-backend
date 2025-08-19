@@ -5,11 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "jest --detectOpenHandles --forceExit --runInBand",
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "db:push": "prisma db push --accept-data-loss",
-    "db:seed": "prisma db seed",
-    "build": "npm run db:push && npm run db:seed"
+    "start": "echo 'Pushing schema to DB...' && npx prisma db push --accept-data-loss && echo 'Seeding DB...' && prisma db seed && echo 'Starting Service with nodemon...' && node src/index.js",
+    "dev": "echo 'Pushing schema to DB...' && npx prisma db push --accept-data-loss && echo 'Seeding DB...' && prisma db seed && echo 'Starting Service with nodemon...' && nodemon src/index.js",
+    "prisma:seed": "prisma db seed"
   },
   "dependencies": {
     "@prisma/client": "^5.11.0",
