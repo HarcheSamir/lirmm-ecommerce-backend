@@ -1,6 +1,6 @@
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.3.2
+    image: localhost:5000/confluentinc/cp-zookeeper:7.3.2
     container_name: zookeeper-dev
     networks:
       - microservices-network
@@ -14,7 +14,7 @@ services:
       retries: 5
 
   kafka:
-    image: confluentinc/cp-kafka:7.3.2
+    image: localhost:5000/confluentinc/cp-kafka:7.3.2
     container_name: kafka-dev
     networks:
       - microservices-network
@@ -43,7 +43,7 @@ services:
       retries: 5
 
   kafka-init:
-    image: confluentinc/cp-kafka:7.3.2
+    image: localhost:5000/confluentinc/cp-kafka:7.3.2
     container_name: kafka-init-dev
     networks:
       - microservices-network
@@ -65,7 +65,7 @@ services:
       "
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+    image: localhost:5000/docker.elastic.co/elasticsearch/elasticsearch:8.11.1
     container_name: elasticsearch-dev
     environment:
       - discovery.type=single-node
@@ -89,7 +89,7 @@ services:
       start_period: 45s
 
   redis:
-    image: redis:7.2-alpine
+    image: localhost:5000/redis:7.2-alpine
     container_name: redis-dev
     ports:
       - "6380:6379"
@@ -446,7 +446,7 @@ services:
           path: ./notification-service/package.json
  
   auth-db:
-    image: postgres:15-alpine
+    image: localhost:5000/postgres:15-alpine
     container_name: auth-db
     ports:
       - "5434:5432"
@@ -465,7 +465,7 @@ services:
       retries: 5
 
   product-db:
-    image: postgres:15-alpine
+    image: localhost:5000/postgres:15-alpine
     container_name: product-db
     ports:
       - "5435:5432"
@@ -484,7 +484,7 @@ services:
       retries: 5
 
   order-db:
-    image: postgres:15-alpine
+    image: localhost:5000/postgres:15-alpine
     container_name: order-db
     ports:
       - "5436:5432"
@@ -503,7 +503,7 @@ services:
       retries: 5
 
   review-db:
-    image: postgres:15-alpine
+    image: localhost:5000/postgres:15-alpine
     container_name: review-db
     ports:
       - "5437:5432"
@@ -522,7 +522,7 @@ services:
       retries: 5
 
   stats-db:
-    image: postgres:15-alpine
+    image: localhost:5000/postgres:15-alpine
     container_name: stats-db
     ports:
       - "5438:5432"
