@@ -36,9 +36,13 @@ pipeline {
                     images.each { imageName ->
                         def localImageName = "${REGISTRY_HOST}/${imageName}"
                         
+                        // Extract repository name (without tag) for API call
+                        def repoName = imageName.split(':')[0]
+                        def tagName = imageName.split(':')[1]
+                        
                         // Check if image exists in local registry
                         def imageExists = sh(
-                            script: "curl -s http://${REGISTRY_HOST}/v2/${imageName}/tags/list | grep -q '\"tags\"'",
+                            script: "curl -s http://${REGISTRY_HOST}/v2/${repoName}/tags/list | grep -q '\"${tagName}\"'",
                             returnStatus: true
                         ) == 0
                         
