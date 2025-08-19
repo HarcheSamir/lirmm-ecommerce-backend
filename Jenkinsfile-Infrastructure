@@ -1,4 +1,4 @@
-// Jenkinsfile-Infrastructure (Corrected ISTIO_BIN_DIR path)
+// Jenkinsfile-Infrastructure (Conditional pre-pull)
 pipeline {
     agent { label 'wsl' }
 
@@ -9,7 +9,6 @@ pipeline {
         KIND_CLUSTER_NAME     = "lirmm-dev-cluster"
         KIND_CONFIG_FILE      = "./kind-deployment/kind-cluster-config.yaml"
         KIND_SETUP_SCRIPT     = "./kind-deployment/setup-kind.sh"
-        // VVVV THIS IS THE LINE I FUCKED UP AND HAVE NOW CORRECTED VVVV
         ISTIO_BIN_DIR         = '/home/samir/istio-1.26.3/bin'
         INFRA_IMAGES = """
             confluentinc/cp-zookeeper:7.3.2
@@ -22,6 +21,7 @@ pipeline {
 
     parameters {
         choice(name: 'MODE', choices: ['BOOTSTRAP', 'RESET_DATA_ONLY'], description: 'BOOTSTRAP: Creates cluster+Istio+addons & infra. RESET_DATA_ONLY: Fast data wipe.')
+        booleanParam(name: 'FORCE_PULL_IMAGES', defaultValue: false, description: 'Force pull images even if they exist in local registry')
     }
 
     stages {
@@ -31,16 +31,31 @@ pipeline {
                 script {
                     echo "--- BOOTSTRAP MODE ---"
 
-                    // Pre-pull images first. This is safe to run anytime.
-                    echo "Pre-pulling and pushing infra images to local registry for speed..."
+                    // Smart image handling: only pull if not in local registry or forced
                     def images = INFRA_IMAGES.trim().split('\\s+')
                     images.each { imageName ->
-                        echo "Processing image: ${imageName}"
-                        sh """
-                            docker pull ${imageName}
-                            docker tag ${imageName} ${REGISTRY_HOST}/${imageName}
-                            docker push ${REGISTRY_HOST}/${imageName}
-                        """
+                        def localImageName = "${REGISTRY_HOST}/${imageName}"
+                        
+                        // Check if image exists in local registry
+                        def imageExists = sh(
+                            script: "curl -s http://${REGISTRY_HOST}/v2/${imageName}/tags/list | grep -q '\"tags\"'",
+                            returnStatus: true
+                        ) == 0
+                        
+                        if (!imageExists || params.FORCE_PULL_IMAGES) {
+                            if (params.FORCE_PULL_IMAGES) {
+                                echo "Force pulling image: ${imageName} (FORCE_PULL_IMAGES=true)"
+                            } else {
+                                echo "Image not found in local registry, pulling: ${imageName}"
+                            }
+                            sh """
+                                docker pull ${imageName}
+                                docker tag ${imageName} ${localImageName}
+                                docker push ${localImageName}
+                            """
+                        } else {
+                            echo "Image already exists in local registry, skipping pull: ${imageName}"
+                        }
                     }
 
                     // The setup script is now the single source of truth for cluster creation and Istio install.

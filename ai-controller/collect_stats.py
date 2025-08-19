@@ -2,13 +2,14 @@ import requests
 import csv
 import time
 from datetime import datetime, timezone
-import os # <-- CHANGED: Import the 'os' module
+import os
+import sys # <-- ADD THIS LINE
 
 # --- Configuration ---
 PROMETHEUS_URL = "http://localhost:9090"
-OUTPUT_DIR = "prometheus-stats" # <-- CHANGED: Define the output directory name
+OUTPUT_DIR = "prometheus-stats"
 
-# This dictionary holds the final, validated queries.
+# ... (The QUERIES dictionary remains the same) ...
 QUERIES = {
     "rps_per_pod": {
         "query": 'sum(rate(istio_requests_total{reporter="destination", destination_workload=~"product-service-v.-deployment", namespace="lirmm-services"}[1m])) by (destination_workload)',
@@ -37,7 +38,7 @@ EXPERIMENT_DURATION_SECONDS = 1800 # 30 minutes
 SCRAPE_INTERVAL_SECONDS = 15
 
 def query_prometheus(query):
-    """Sends a query to the Prometheus API and returns the result."""
+    # ... (This function remains the same) ...
     try:
         url = f"{PROMETHEUS_URL}/api/v1/query"
         response = requests.get(url, params={'query': query})
@@ -53,24 +54,19 @@ def query_prometheus(query):
         return []
 
 def main(experiment_name="baseline"):
-    """Main function to run the data collection."""
+    # ... (This function remains the same) ...
     print(f"--- Starting data collection for '{experiment_name}' experiment ---")
     
-    # --- CHANGED: Create the output directory if it doesn't exist ---
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     print(f"Saving output files to: ./{OUTPUT_DIR}/")
-    # --- END CHANGE ---
-
+    
     start_time = time.time()
     end_time = start_time + EXPERIMENT_DURATION_SECONDS
 
     output_files = {}
     try:
-        # Create CSV files and write headers
         for name, details in QUERIES.items():
-            # --- CHANGED: Prepend the directory to the filename ---
             filename = os.path.join(OUTPUT_DIR, f"{experiment_name}_{name}.csv")
-            # --- END CHANGE ---
             f = open(filename, 'w', newline='')
             writer = csv.DictWriter(f, fieldnames=details['fields'])
             writer.writeheader()
@@ -114,5 +110,16 @@ def main(experiment_name="baseline"):
         
         print(f"--- Data collection for '{experiment_name}' finished. Results saved inside ./{OUTPUT_DIR}/ directory. ---")
 
+
 if __name__ == "__main__":
-    main("baseline")
+    # --- THIS IS THE CHANGED SECTION ---
+    # Check if a command-line argument for the experiment name was provided.
+    # sys.argv[0] is the script name itself, sys.argv[1] is the first argument.
+    if len(sys.argv) > 1:
+        exp_name = sys.argv[1]
+    else:
+        # If no argument is provided, default to "baseline".
+        exp_name = "baseline"
+    
+    main(exp_name)
+    # --- END OF CHANGED SECTION ---
