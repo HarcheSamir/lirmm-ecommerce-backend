@@ -178,9 +178,9 @@ export const options = {
       exec: 'windowShopper',
       startVUs: 0,
       stages: [
-        { duration: '1m', target: 100 },   // Ramp-up to 10 users over 1 minute
-        { duration: '28m', target: 100 },  // Stay at 10 users for 28 minutes
-        { duration: '1m', target: 0 },    // Ramp-down to 0 users over 1 minute
+        { duration: '1m', target: 100 },   
+        { duration: '28m', target: 100 },  
+        { duration: '1m', target: 0 },    
       ],
       gracefulRampDown: '30s',
     },
@@ -189,9 +189,9 @@ export const options = {
       exec: 'missionCustomer',
       startVUs: 0,
       stages: [
-        { duration: '1m', target: 100 },   // Ramp-up to 10 users over 1 minute
-        { duration: '28m', target: 50 },  // Stay at 10 users for 28 minutes
-        { duration: '1m', target: 0 },    // Ramp-down to 0 users over 1 minute
+        { duration: '1m', target: 10 },   
+        { duration: '28m', target: 10 },  
+        { duration: '1m', target: 0 },   
       ],
       gracefulRampDown: '30s',
     },
@@ -200,9 +200,9 @@ export const options = {
       exec: 'guestBuyer',
       startVUs: 0,
       stages: [
-        { duration: '1m', target: 10 },   // Ramp-up to 10 users over 1 minute
-        { duration: '28m', target: 10 },  // Stay at 10 users for 28 minutes
-        { duration: '1m', target: 0 },    // Ramp-down to 0 users over 1 minute
+        { duration: '1m', target: 25 }, 
+        { duration: '28m', target: 25 },  
+        { duration: '1m', target: 0 }, 
       ],
       gracefulRampDown: '30s',
     },
@@ -211,8 +211,8 @@ export const options = {
       exec: 'registeredBuyer',
       startVUs: 0,
       stages: [
-        { duration: '1m', target: 10 },   // Ramp-up to 10 users over 1 minute
-        { duration: '28m', target: 10 },  // Stay at 10 users for 28 minutes
+        { duration: '1m', target: 25 },   // Ramp-up to 10 users over 1 minute
+        { duration: '28m', target: 25 },  // Stay at 10 users for 28 minutes
         { duration: '1m', target: 0 },    // Ramp-down to 0 users over 1 minute
       ],
       gracefulRampDown: '30s',
