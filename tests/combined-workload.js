@@ -3,7 +3,7 @@
 import { check, sleep } from 'k6';
 import http from 'k6/http';
 
-const baseUrl = 'http://localhost:3000';
+const baseUrl = 'http://localhost:13000';
 
 // ==============================================================================
 //  SETUP FUNCTION
