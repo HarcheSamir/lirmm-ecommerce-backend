@@ -90,7 +90,7 @@ export default function (data) {
 
     const guestPayload = JSON.stringify({
       guestName: 'Guest User',
-      guestEmail: `guest-${Date.now()}@test.com`,
+      guestEmail: `test@gmail.com`,
       phone: '555-555-5555',
       shippingAddress: {
         street: '123 Guest St',

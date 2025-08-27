@@ -1,14 +1,12 @@
-// ===== FILE: order-service/src/modules/order/order.routes.js =====
+// order-service/src/modules/order/order.routes.js
 const express = require('express');
 const {
-    createOrder,
-    getGuestOrder,
-    getMyOrders,
-    getOrderById,
-    getAllOrders,
-    updateOrderStatus,
-    verifyPurchase,
-    seedGuestOrders
+    // Orders
+    createOrder, cancelOrder, getGuestOrder, getMyOrders, getOrderById, getAllOrders,
+    updateOrderStatus, verifyPurchase, seedGuestOrders,
+    // Returns
+    createReturnRequest, getMyReturnRequests, getAllReturnRequests, getReturnRequestById, manageReturnRequest,
+    createReturnRequestComment 
 } = require('./order.controller');
 const authMiddleware = require('../../middlewares/auth');
 const optionalAuthMiddleware = require('../../middlewares/optionalAuth');
@@ -17,24 +15,25 @@ const adminOnlyMiddleware = require('../../middlewares/adminOnly');
 
 const router = express.Router();
 
-// --- INTERNAL ON-DEMAND SEEDING ROUTE ---
+// --- ORDERS ---
 router.post('/internal/seed-orders', seedGuestOrders);
-
-
-// --- PUBLIC ROUTES ---
 router.post('/', optionalAuthMiddleware, createOrder);
 router.post('/guest-lookup', getGuestOrder);
 router.get('/:id', getOrderById);
 router.get('/', getAllOrders);
-
-
-// --- PROTECTED ROUTES ---
+router.post('/:id/cancel', optionalAuthMiddleware, cancelOrder);
 router.get('/my-orders', authMiddleware, hasPermission('read:my-orders'), getMyOrders);
-
-// --- ADMIN-ONLY ROUTES ---
-router.put('/:id/status', adminOnlyMiddleware, updateOrderStatus);
-
-// --- INTERNAL SERVICE-TO-SERVICE ROUTE ---
+router.put('/:id/status', adminOnlyMiddleware, hasPermission('update:order'), updateOrderStatus);
 router.get('/internal/verify-purchase', verifyPurchase);
+
+// --- RETURNS ---
+router.post('/returns', optionalAuthMiddleware, createReturnRequest); // User/Guest creates a return request
+router.get('/my-returns', authMiddleware, getMyReturnRequests); // User gets their return requests
+router.get('/returns/:id', optionalAuthMiddleware, getReturnRequestById); // User/Guest gets a specific return request
+router.post('/returns/:id/comments', optionalAuthMiddleware, createReturnRequestComment);
+
+// --- ADMIN RETURNS ---
+router.get('/admin/returns', adminOnlyMiddleware, hasPermission('read:returns'), getAllReturnRequests);
+router.put('/admin/returns/:id', adminOnlyMiddleware, hasPermission('write:returns'), manageReturnRequest);
 
 module.exports = router;

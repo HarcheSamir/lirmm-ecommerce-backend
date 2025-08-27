@@ -1,7 +1,8 @@
+// stats-service/src/index.js
 const { app } = require('./config/app');
 const { connectConsumer, disconnectConsumer } = require('./kafka/consumer');
 
-const PORT = process.env.PORT || 3010;
+const PORT = process.env.PORT || 3012;
 
 const startServer = async () => {
     let server;
@@ -22,7 +23,7 @@ const startServer = async () => {
         process.on('SIGTERM', () => shutdown('SIGTERM'));
     } catch (error) {
         console.error('Failed to start Stats Service:', error);
-        await disconnectConsumer().catch(e => console.error("Error on disconnect:", e));
+        await disconnectConsumer().catch(e => console.error("Error on disconnect consumer:", e));
         process.exit(1);
     }
 };

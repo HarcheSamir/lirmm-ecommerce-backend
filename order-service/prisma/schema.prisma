@@ -19,7 +19,7 @@ model DenormalizedUser {
   profileImage String?
   email        String
 
-  orders Order[] // <-- ADD THIS RELATIONSHIP
+  orders Order[]
 
   @@map("denormalized_users")
 }
@@ -31,6 +31,18 @@ enum OrderStatus {
   DELIVERED
   CANCELLED
 }
+
+enum ReturnRequestStatus {
+  PENDING_APPROVAL
+  AWAITING_CUSTOMER_RESPONSE // <-- NEW STATUS
+  APPROVED
+  REJECTED
+  SHIPPED_BY_CUSTOMER
+  RECEIVED
+  COMPLETED
+  CANCELLED
+}
+
 enum PaymentMethod {
   CREDIT_CARD
   CASH_ON_DELIVERY
@@ -51,8 +63,11 @@ model Order {
   paymentTransactionId String?       @unique
   paymentFailureReason String?
 
+  guest_token     String?       @unique // <-- RENAMED
+
   items           OrderItem[]
-  user            DenormalizedUser? @relation(fields: [userId], references: [id]) // <-- ADD THIS RELATIONSHIP
+  user            DenormalizedUser? @relation(fields: [userId], references: [id])
+  returnRequests  ReturnRequest[]
 
   @@index([userId])
   @@index([guestEmail])
@@ -71,7 +86,55 @@ model OrderItem {
   costPriceAtTimeOfOrder Decimal? @db.Decimal(10, 2)
   quantity           Int
   order              Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  returnRequestItems ReturnRequestItem[]
+
   @@index([orderId])
   @@index([productId])
   @@index([variantId])
 }
+
+model ReturnRequest {
+  id            String              @id @default(uuid())
+  orderId       String
+  reason        String
+  status        ReturnRequestStatus @default(PENDING_APPROVAL)
+  adminComments String?
+  imageUrls     Json?               // <-- NEW FIELD FOR IMAGES
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  order         Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items         ReturnRequestItem[]
+  comments      ReturnRequestComment[] // <-- NEW RELATION FOR COMMENTS
+
+  @@index([orderId])
+}
+
+model ReturnRequestItem {
+  id              String  @id @default(uuid())
+  returnRequestId String
+  orderItemId     String
+  quantity        Int
+
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  orderItem       OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+
+  @@unique([returnRequestId, orderItemId])
+  @@index([orderItemId])
+}
+
+// --- NEW MODEL: ReturnRequestComment ---
+model ReturnRequestComment {
+  id              String        @id @default(uuid())
+  returnRequestId String
+  authorId        String? // Null for guests
+  authorName      String    // "Guest" or Admin's name
+  commentText     String
+  createdAt       DateTime      @default(now())
+
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+
+  @@index([returnRequestId])
+}
+// --- END NEW MODEL ---

@@ -1,3 +1,4 @@
+// payment-service/src/modules/payment/payment.controller.js
 const { sendMessage } = require('../../kafka/producer');
 const { v4: uuidv4 } = require('uuid');
 
@@ -42,6 +43,49 @@ const processPayment = async (req, res, next) => {
     }
 };
 
+const processRefund = async (req, res, next) => {
+    const { orderId, amount, originalTransactionId } = req.body;
+
+    if (!orderId || !amount || !originalTransactionId) {
+        return res.status(400).json({ message: 'orderId, amount, and originalTransactionId are required.' });
+    }
+
+    res.status(202).json({
+        message: 'Refund processing initiated.',
+        orderId: orderId,
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // Simulate a high success rate for refunds
+    const isSuccess = Math.random() < 0.98;
+    const refundTransactionId = uuidv4();
+
+    if (isSuccess) {
+        console.log(`Refund for order [${orderId}] succeeded. Refund Transaction ID: ${refundTransactionId}`);
+        await sendMessage('PAYMENT_REFUNDED', {
+            orderId,
+            refundTransactionId,
+            originalTransactionId,
+            amount,
+            status: 'PAYMENT_REFUNDED',
+        });
+    } else {
+        const failureReason = 'Refund declined by payment processor';
+        console.log(`Refund for order [${orderId}] failed. Reason: ${failureReason}`);
+        await sendMessage('PAYMENT_REFUND_FAILED', {
+            orderId,
+            refundTransactionId,
+            originalTransactionId,
+            amount,
+            status: 'PAYMENT_REFUND_FAILED',
+            reason: failureReason,
+        });
+    }
+};
+
+
 module.exports = {
     processPayment,
+    processRefund,
 };

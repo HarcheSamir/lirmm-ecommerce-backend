@@ -34,6 +34,10 @@ const ALL_PERMISSIONS = [
     { name: 'update:order', description: 'Update the status of any order' },
     { name: 'read:my-orders', description: 'Read one\'s own orders' },
     { name: 'create:order', description: 'Create a new order for oneself' },
+    // --- SURGICAL ADDITION ---
+    { name: 'read:returns', description: 'Read all return requests' },
+    { name: 'write:returns', description: 'Manage (approve/reject/update) return requests' },
+    // --- END SURGICAL ADDITION ---
 
     // Review Permissions
     { name: 'read:review', description: 'Read one\'s own reviews' },

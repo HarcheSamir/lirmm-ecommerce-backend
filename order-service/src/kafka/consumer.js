@@ -94,7 +94,7 @@ const processMessage = async ({ topic, partition, message }) => {
                 return;
             }
 
-            const { orderId, status, transactionId, reason } = paymentData;
+            const { orderId, status, transactionId, reason, refundTransactionId } = paymentData;
             let dataToUpdate = {};
 
             if (status === 'PAYMENT_SUCCESS') {
@@ -106,8 +106,16 @@ const processMessage = async ({ topic, partition, message }) => {
                 dataToUpdate.paymentFailureReason = reason;
                 const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true }});
                 if (order) {
-                    await sendMessage('ORDER_CANCELLED', order, order.id);
+                    // This now emits a generic CANCELLED event, which product-service consumes for stock reversal.
+                    const eventPayload = { ...order, customerEmail: order.guestEmail /* simplified */ };
+                    await sendMessage('ORDER_CANCELLED', eventPayload, order.id);
                 }
+            } else if (status === 'PAYMENT_REFUNDED') {
+                // Here we can log the refund transaction ID. The status is already CANCELLED.
+                // In a real system, you might add a separate field for `refundTransactionId`.
+                console.log(`Order [${orderId}] was successfully refunded. Refund TXN ID: [${refundTransactionId}]`);
+            } else if (status === 'PAYMENT_REFUND_FAILED') {
+                console.error(`CRITICAL: Refund for order [${orderId}] failed. Reason: ${reason}. Manual intervention required.`);
             }
 
             if (dataToUpdate.status) {
@@ -129,7 +137,6 @@ const processMessage = async ({ topic, partition, message }) => {
                         where: { id: orderId },
                         data: { status: 'FAILED' }
                     });
-                     // No need to send ORDER_CANCELLED here, as stock was never removed.
                 }
             }
         }

@@ -1,3 +1,4 @@
+// stats-service/prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,38 +9,21 @@ datasource db {
 }
 
 model DailyAggregate {
-  date                DateTime @id @db.Date
-  totalRevenue        Decimal  @default(0) @db.Decimal(12, 2)
-  ordersCount         Int      @default(0)
-  newCustomersCount   Int      @default(0)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  date               DateTime @id @db.Date
+  revenue            Decimal  @default(0) @db.Decimal(12, 2)
+  cogs               Decimal  @default(0) @db.Decimal(12, 2)
+  orderCount         Int      @default(0)
+  newCustomerCount   Int      @default(0)
 
   @@map("daily_aggregates")
 }
 
-model FactOrder {
-  id                  String   @id
-  status              String
-  totalAmount         Decimal  @db.Decimal(10, 2)
-  countryCode         String?
-  createdAt           DateTime
-  itemCount           Int
-  paymentMethod       String
+model ProductPerformance {
+  productId             String   @id
+  productName           String
+  totalUnitsSold        Int      @default(0)
+  totalRevenueGenerated Decimal  @default(0) @db.Decimal(12, 2)
+  updatedAt             DateTime @updatedAt
 
-  items FactOrderItem[]
-  @@map("fact_orders")
-}
-
-model FactOrderItem {
-  id            String @id
-  orderId       String
-  productId     String
-  productName   String
-  quantity      Int
-  price         Decimal @db.Decimal(10, 2)
-  lineItemTotal Decimal @db.Decimal(10, 2)
-
-  order FactOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  @@map("fact_order_items")
+  @@map("product_performance")
 }

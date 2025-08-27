@@ -1,20 +1,23 @@
+// stats-service/src/modules/stats/stats.routes.js
 const express = require('express');
 const {
     getKpis,
-    getRevenueOverTime,
-    getTopProducts,
-    getRevenueByCountry,
-    getProjectionsVsActuals,
-    getSalesByPaymentMethod,
+    getRevenueCogsOverTime,
+    getRevenueYoY,
+    getRevenueWoW,
+    getTopProducts
 } = require('./stats.controller');
+const adminOnlyMiddleware = require('../../middlewares/adminOnly');
 
 const router = express.Router();
 
+// All stats routes are protected and for admin use only
+router.use(adminOnlyMiddleware);
+
 router.get('/kpis', getKpis);
-router.get('/revenue-over-time', getRevenueOverTime);
+router.get('/revenue-cogs-over-time', getRevenueCogsOverTime);
+router.get('/revenue-yoy', getRevenueYoY);
+router.get('/revenue-wow', getRevenueWoW);
 router.get('/top-products', getTopProducts);
-router.get('/revenue-by-country', getRevenueByCountry);
-router.get('/projections-vs-actuals', getProjectionsVsActuals);
-router.get('/sales-by-payment-method', getSalesByPaymentMethod);
 
 module.exports = router;
