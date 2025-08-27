@@ -34,7 +34,7 @@ enum OrderStatus {
 
 enum ReturnRequestStatus {
   PENDING_APPROVAL
-  AWAITING_CUSTOMER_RESPONSE // <-- NEW STATUS
+  AWAITING_CUSTOMER_RESPONSE
   APPROVED
   REJECTED
   SHIPPED_BY_CUSTOMER
@@ -63,7 +63,7 @@ model Order {
   paymentTransactionId String?       @unique
   paymentFailureReason String?
 
-  guest_token     String?       @unique // <-- RENAMED
+  guest_token     String?       @unique
 
   items           OrderItem[]
   user            DenormalizedUser? @relation(fields: [userId], references: [id])
@@ -100,13 +100,13 @@ model ReturnRequest {
   reason        String
   status        ReturnRequestStatus @default(PENDING_APPROVAL)
   adminComments String?
-  imageUrls     Json?               // <-- NEW FIELD FOR IMAGES
+  imageUrls     Json?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 
   order         Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
   items         ReturnRequestItem[]
-  comments      ReturnRequestComment[] // <-- NEW RELATION FOR COMMENTS
+  comments      ReturnRequestComment[]
 
   @@index([orderId])
 }
@@ -124,17 +124,16 @@ model ReturnRequestItem {
   @@index([orderItemId])
 }
 
-// --- NEW MODEL: ReturnRequestComment ---
 model ReturnRequestComment {
   id              String        @id @default(uuid())
   returnRequestId String
-  authorId        String? // Null for guests
-  authorName      String    // "Guest" or Admin's name
-  commentText     String
+  authorId        String?
+  authorName      String
+  commentText     String?       // <-- MODIFIED: Made optional
+  imageUrl        String?       // <-- ADDED: New field for image URL
   createdAt       DateTime      @default(now())
 
   returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
 
   @@index([returnRequestId])
 }
-// --- END NEW MODEL ---

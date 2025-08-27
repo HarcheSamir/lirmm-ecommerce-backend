@@ -1,12 +1,10 @@
 // order-service/src/modules/order/order.routes.js
 const express = require('express');
 const {
-    // Orders
     createOrder, cancelOrder, getGuestOrder, getMyOrders, getOrderById, getAllOrders,
     updateOrderStatus, verifyPurchase, seedGuestOrders,
-    // Returns
     createReturnRequest, getMyReturnRequests, getAllReturnRequests, getReturnRequestById, manageReturnRequest,
-    createReturnRequestComment 
+    createReturnRequestComment
 } = require('./order.controller');
 const authMiddleware = require('../../middlewares/auth');
 const optionalAuthMiddleware = require('../../middlewares/optionalAuth');
@@ -27,9 +25,9 @@ router.put('/:id/status', adminOnlyMiddleware, hasPermission('update:order'), up
 router.get('/internal/verify-purchase', verifyPurchase);
 
 // --- RETURNS ---
-router.post('/returns', optionalAuthMiddleware, createReturnRequest); // User/Guest creates a return request
-router.get('/my-returns', authMiddleware, getMyReturnRequests); // User gets their return requests
-router.get('/returns/:id', optionalAuthMiddleware, getReturnRequestById); // User/Guest gets a specific return request
+router.post('/returns', optionalAuthMiddleware, createReturnRequest);
+router.get('/my-returns', authMiddleware, getMyReturnRequests);
+router.get('/returns/:id', optionalAuthMiddleware, getReturnRequestById);
 router.post('/returns/:id/comments', optionalAuthMiddleware, createReturnRequestComment);
 
 // --- ADMIN RETURNS ---

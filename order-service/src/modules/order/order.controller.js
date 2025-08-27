@@ -23,6 +23,17 @@ const returnRequestInclude = {
     comments: { orderBy: { createdAt: 'asc' } }
 };
 
+const orderInclude = {
+  items: true,
+  user: true,
+  returnRequests: {
+      include: {
+          items: { include: { orderItem: true } },
+          comments: { orderBy: { createdAt: 'asc' } }
+      }
+  }
+};
+
 const createError = (message, statusCode) => {
   const error = new Error(message);
   error.statusCode = statusCode;
@@ -142,7 +153,8 @@ const getOrderById = async (req, res, next) => {
   try {
     const { id } = req.params;
     const order = await prisma.order.findUnique({
-      where: { id: id }, include: { items: true, user: true },
+      where: { id: id },
+      include: orderInclude,
     });
     if (!order) { return res.status(404).json({ message: 'Order not found.' }); }
     return res.json(formatOrderResponse(order));
@@ -211,14 +223,22 @@ const updateOrderStatus = async (req, res, next) => {
 const getGuestOrder = async (req, res, next) => {
   try {
     const { orderId, email, token } = req.body;
+    let order;
     if (token) {
-        const order = await prisma.order.findFirst({ where: { id: orderId, guest_token: token }, include: { items: true, user: true } });
+        order = await prisma.order.findFirst({
+            where: { id: orderId, guest_token: token },
+            include: orderInclude
+        });
         if (!order) { return res.status(404).json({ message: 'Order not found or token is invalid.' }); }
-        return res.json(formatOrderResponse(order));
+    } else if (orderId && email) {
+        order = await prisma.order.findFirst({
+            where: { id: orderId, guestEmail: email },
+            include: orderInclude
+        });
+        if (!order) { return res.status(404).json({ message: 'Order not found or email does not match.' }); }
+    } else {
+        return res.status(400).json({ message: 'Order ID and email/token are required.' });
     }
-    if (!orderId || !email) { return res.status(400).json({ message: 'Order ID and email are required.' }); }
-    const order = await prisma.order.findFirst({ where: { id: orderId, guestEmail: email }, include: { items: true, user: true } });
-    if (!order) { return res.status(404).json({ message: 'Order not found or email does not match.' }); }
     res.json(formatOrderResponse(order));
   } catch (err) { next(err); }
 };
@@ -338,53 +358,53 @@ const manageReturnRequest = async (req, res, next) => {
 };
 
 const createReturnRequestComment = async (req, res, next) => {
-  try {
-      const { id: returnRequestId } = req.params;
-      const { commentText } = req.body;
-      const { guest_token } = req.query;
-      const user = req.user;
-      if (!commentText) { return res.status(400).json({ message: 'Comment text cannot be empty.' }); }
-      let returnRequest;
-      if (user) {
-          if (user.role === 'ADMIN') {
-              returnRequest = await prisma.returnRequest.findUnique({ where: { id: returnRequestId }, include: { order: { include: { user: true } } } });
-          } else {
-              returnRequest = await prisma.returnRequest.findFirst({ where: { id: returnRequestId, order: { userId: user.id } }, include: { order: { include: { user: true } } } });
-          }
-      } else if (guest_token) {
-          returnRequest = await prisma.returnRequest.findFirst({ where: { id: returnRequestId, order: { guest_token: guest_token } }, include: { order: { include: { user: true } } } });
-      } else {
-          return res.status(401).json({ message: 'Authentication is required.' });
-      }
-      if (!returnRequest) { return res.status(404).json({ message: 'Return request not found or you do not have permission to comment on it.' }); }
+    try {
+        const { id: returnRequestId } = req.params;
+        const { commentText, imageUrl } = req.body;
+        const { guest_token } = req.query;
+        const user = req.user;
 
-      const newComment = await prisma.returnRequestComment.create({
-          data: { returnRequestId, commentText, authorId: user ? user.id : null, authorName: user ? user.name : 'Guest' }
-      });
+        if (!commentText && !imageUrl) {
+            return res.status(400).json({ message: 'Comment must contain either text or an image.' });
+        }
 
-      const updatedRequest = await prisma.returnRequest.update({ 
-          where: { id: returnRequestId }, 
-          data: { status: (user && user.role === 'ADMIN') ? 'AWAITING_CUSTOMER_RESPONSE' : undefined },
-          include: returnRequestInclude
-      });
-      
-      // --- START: SURGICAL CORRECTION ---
-      // The formatted request now includes all necessary data (items, comments, phone).
-      const formattedReturnRequest = formatReturnRequestResponse(updatedRequest);
-      
-      // Enrich the formatted request with the guest token for the email link.
-      formattedReturnRequest.guest_token = updatedRequest.order.guest_token;
+        let returnRequest;
+        if (user) {
+            if (user.role === 'ADMIN') {
+                returnRequest = await prisma.returnRequest.findUnique({ where: { id: returnRequestId }, include: { order: { include: { user: true } } } });
+            } else {
+                returnRequest = await prisma.returnRequest.findFirst({ where: { id: returnRequestId, order: { userId: user.id } }, include: { order: { include: { user: true } } } });
+            }
+        } else if (guest_token) {
+            returnRequest = await prisma.returnRequest.findFirst({ where: { id: returnRequestId, order: { guest_token: guest_token } }, include: { order: { include: { user: true } } } });
+        } else {
+            return res.status(401).json({ message: 'Authentication is required.' });
+        }
+        if (!returnRequest) { return res.status(404).json({ message: 'Return request not found or you do not have permission to comment on it.' }); }
 
-      const eventPayload = {
-          returnRequest: formattedReturnRequest,
-          authorName: newComment.authorName,
-          commentText: newComment.commentText,
-      };
-      // --- END: SURGICAL CORRECTION ---
-      
-      await sendMessage('RETURN_REQUEST_COMMENT_ADDED', eventPayload, returnRequestId);
-      res.status(201).json(newComment);
-  } catch (err) { next(err); }
+        const newComment = await prisma.returnRequestComment.create({
+            data: { returnRequestId, commentText, imageUrl, authorId: user ? user.id : null, authorName: user ? user.name : 'Guest' }
+        });
+
+        const updatedRequest = await prisma.returnRequest.update({ 
+            where: { id: returnRequestId }, 
+            data: { status: (user && user.role === 'ADMIN') ? 'AWAITING_CUSTOMER_RESPONSE' : undefined },
+            include: returnRequestInclude
+        });
+        
+        const formattedReturnRequest = formatReturnRequestResponse(updatedRequest);
+        formattedReturnRequest.guest_token = updatedRequest.order.guest_token;
+
+        const eventPayload = {
+            returnRequest: formattedReturnRequest,
+            authorName: newComment.authorName,
+            commentText: newComment.commentText,
+            imageUrl: newComment.imageUrl
+        };
+        
+        await sendMessage('RETURN_REQUEST_COMMENT_ADDED', eventPayload, returnRequestId);
+        res.status(201).json(newComment);
+    } catch (err) { next(err); }
 };
 
 const seedGuestOrders = async (req, res, next) => {
@@ -392,8 +412,7 @@ const seedGuestOrders = async (req, res, next) => {
 };
 
 module.exports = {
-  createOrder, cancelOrder, getGuestOrder, getMyOrders, getOrderById, getAllOrders,
-  updateOrderStatus, verifyPurchase, seedGuestOrders,
+  createOrder, cancelOrder, getOrderById, getAllOrders, getMyOrders, updateOrderStatus, getGuestOrder, verifyPurchase, seedGuestOrders,
   createReturnRequest, getMyReturnRequests, getAllReturnRequests, getReturnRequestById, manageReturnRequest,
   createReturnRequestComment,
 };
