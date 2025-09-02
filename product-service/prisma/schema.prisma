@@ -15,12 +15,12 @@ enum StockMovementType {
   ORDER
   ADJUSTMENT
   ORDER_CANCELLED
-  RETURN_RESTOCK // <-- ADD THIS
+  RETURN_RESTOCK
 }
 
 model Category {
   id        String    @id @default(uuid())
-  name      String
+  name      Json
   slug      String    @unique
   parentId  String?
   imageUrl  String?
@@ -36,18 +36,18 @@ model Category {
 }
 
 model Product {
-  id          String    @id @default(uuid())
-  sku         String    @unique
-  name        String
-  description String?
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id            String    @id @default(uuid())
+  sku           String    @unique
+  name          Json
+  description   Json?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   averageRating Float     @default(0)
   reviewCount   Int       @default(0)
-  variants    Variant[]
-  categories  ProductCategory[]
-  images      ProductImage[]
+  variants      Variant[]
+  categories    ProductCategory[]
+  images        ProductImage[]
 }
 
 model ProductImage {
@@ -70,7 +70,7 @@ model Variant {
   attributes        Json
   price             Decimal
   costPrice         Decimal?
-  stockQuantity     Int       @default(0) // This will be updated by stock movements
+  stockQuantity     Int       @default(0)
   lowStockThreshold Int?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -101,10 +101,18 @@ model StockMovement {
   reason          String?
   relatedOrderId  String?
 
-  // Relation to Variant (No Cascade)
-  variant         Variant           @relation(fields: [variantId], references: [id], onUpdate: NoAction, onDelete: Restrict) // Explicit Restrict is clearer
+  variant         Variant           @relation(fields: [variantId], references: [id], onUpdate: NoAction, onDelete: Restrict)
 
   @@index([variantId])
   @@index([timestamp])
   @@index([relatedOrderId])
+}
+
+model CurrencyRate {
+  code        String   @id // e.g., "USD", "EUR", "DZD"
+  rateVsBase  Decimal  // Exchange rate against the base currency (e.g., USD is 1.0, EUR is 0.92)
+  isBase      Boolean  @default(false)
+  lastUpdated DateTime @updatedAt
+
+  @@map("currency_rates")
 }

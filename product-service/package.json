@@ -5,7 +5,11 @@
   "scripts": {
     "test": "jest --detectOpenHandles --forceExit --runInBand",
     "start": "echo 'Pushing schema to DB...' && npx prisma db push --accept-data-loss && echo 'Seeding DB...' && prisma db seed && echo 'Starting Service with nodemon...' && node src/index.js",
-    "dev": "echo 'Pushing schema to DB...' && npx prisma db push --accept-data-loss && echo 'Seeding DB...' && prisma db seed && echo 'Starting Service with nodemon...' && nodemon src/index.js"
+    "dev": "echo 'Pushing schema to DB...' && npx prisma db push --accept-data-loss && echo 'Seeding DB...' && prisma db seed && echo 'Starting Service with nodemon...' && nodemon src/index.js",
+    "prisma:seed": "prisma db seed"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "keywords": [],
   "author": "",

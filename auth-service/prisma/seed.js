@@ -43,6 +43,11 @@ const ALL_PERMISSIONS = [
     { name: 'read:review', description: 'Read one\'s own reviews' },
     { name: 'write:review', description: 'Create or update one\'s own reviews' },
     { name: 'delete:review', description: 'Delete any review (for admins) or one\'s own' },
+
+    // Currency Permissions
+    { name: 'read:currency', description: 'Read currency exchange rates' },
+    { name: 'write:currency', description: 'Create/Update currency exchange rates' },
+
 ];
 
 async function main() {

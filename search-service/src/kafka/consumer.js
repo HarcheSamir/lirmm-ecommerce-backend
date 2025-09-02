@@ -5,7 +5,7 @@ const { client: esClient, PRODUCT_INDEX } = require('../config/elasticsearch');
 
 const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'localhost:9092').split(',');
 const SERVICE_NAME = process.env.SERVICE_NAME || 'search-service';
-const KAFKA_TOPIC = 'product_events'; // Consume from product_events
+const KAFKA_TOPIC = 'product_events';
 
 if (!KAFKA_BROKERS || KAFKA_BROKERS.length === 0) {
     console.error('FATAL: Missing required environment variable KAFKA_BROKERS');
@@ -20,7 +20,26 @@ const kafka = new Kafka({
 
 const consumer = kafka.consumer({ groupId: `${SERVICE_NAME}-group-products` });
 
-// --- Process Message Logic ---
+const transformProductForIndexing = (product) => {
+    const transformed = { ...product };
+
+    if (Array.isArray(transformed.category_names)) {
+        transformed.category_names_en = [];
+        transformed.category_names_fr = [];
+        transformed.category_names_ar = [];
+
+        transformed.category_names.forEach(nameObj => {
+            if (nameObj && typeof nameObj === 'object') {
+                if (nameObj.en) transformed.category_names_en.push(nameObj.en);
+                if (nameObj.fr) transformed.category_names_fr.push(nameObj.fr);
+                if (nameObj.ar) transformed.category_names_ar.push(nameObj.ar);
+            }
+        });
+        delete transformed.category_names;
+    }
+    return transformed;
+};
+
 const processMessage = async ({ topic, partition, message }) => {
     try {
         const event = JSON.parse(message.value.toString());
@@ -41,7 +60,7 @@ const processMessage = async ({ topic, partition, message }) => {
                      console.error(`Invalid payload structure for ${event.type} event: Expected an object. Payload:`, event.payload);
                      return;
                 }
-                const documentToIndex = event.payload;
+                const documentToIndex = transformProductForIndexing(event.payload);
                 console.log(`Indexing/Updating product ${documentToIndex.id} in index ${indexName}...`);
                 await esClient.index({
                     index: indexName,
@@ -75,17 +94,13 @@ const processMessage = async ({ topic, partition, message }) => {
         }
     } catch (error) {
         console.error('Error processing Kafka message:', error);
-        // Consider implementing a dead-letter queue
     }
 };
-// --- End Process Message Logic ---
 
-
-// --- Connect/Disconnect Functions (RESTORED/ENSURED PRESENT) ---
 const connectConsumer = async () => {
     try {
         await consumer.connect();
-        await consumer.subscribe({ topic: KAFKA_TOPIC, fromBeginning: true }); // fromBeginning might be true/false depending on needs
+        await consumer.subscribe({ topic: KAFKA_TOPIC, fromBeginning: true });
         console.log(`Kafka consumer subscribed to topic: ${KAFKA_TOPIC}`);
 
         await consumer.run({
@@ -94,7 +109,7 @@ const connectConsumer = async () => {
          console.log('Kafka consumer is running...');
     } catch (error) {
         console.error('Failed to connect or run Kafka consumer:', error);
-        throw error; // Propagate error to index.js for startup failure
+        throw error;
     }
 };
 
@@ -106,7 +121,5 @@ const disconnectConsumer = async () => {
         console.error('Error disconnecting Kafka consumer:', error);
     }
 };
-// --- End Connect/Disconnect Functions ---
 
-
-module.exports = { connectConsumer, disconnectConsumer }; // <<< Functions are now defined above
+module.exports = { connectConsumer, disconnectConsumer };

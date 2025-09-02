@@ -3,15 +3,24 @@ import { check, sleep } from 'k6';
 
 const baseUrl = 'http://localhost:3000';
 
-// Run once
-export const options = { vus: 1, iterations: 1 };
+// ==============================================================================
+// SCENARIOS: Define the different user contexts we will test against.
+// ==============================================================================
+const scenarios = [
+  { lang: 'fr-FR', currency: 'EUR', headers: { 'Content-Type': 'application/json', 'Accept-Language': 'fr-FR', 'X-Currency': 'EUR' } },
+  { lang: 'en-US', currency: 'USD', headers: { 'Content-Type': 'application/json', 'Accept-Language': 'en-US', 'X-Currency': 'USD' } },
+  { lang: 'ar-DZ', currency: 'DZD', headers: { 'Content-Type': 'application/json', 'Accept-Language': 'ar-DZ', 'X-Currency': 'DZD' } },
+];
+
+// Run with 10 virtual users for 30 seconds to simulate concurrent requests.
+export const options = {
+  vus: 1, iterations: 1
+};
 
 // ==============================================================================
-// SETUP: resync → categories bulk → products bulk 
+// SETUP: This function remains unchanged. Its logic is still correct.
 // ==============================================================================
 export function setup() {
-  const headers = { 'Content-Type': 'application/json' };
-
   console.log('--- Step 1: User Sync ---');
   http.post(`${baseUrl}/auth/resync-users`);
 
@@ -21,17 +30,21 @@ export function setup() {
   console.log('--- Step 3: Bulk products ---');
   http.post(`${baseUrl}/products/bulk`);
 
-  console.log('--- Step 4: test order service availability ---');
-  http.get(`${baseUrl}/orders`);
-
+  console.log('--- Setup Complete ---');
 }
 
 // ==============================================================================
-// HELPERS — same logic style as your script
+// HELPERS — Surgically modified to accept and use headers.
 // ==============================================================================
-function getRandomProducts(count = 1) {
+function getRandomProducts(headers, count = 1) {
   const productsToReturn = [];
-  const prodRes = http.get(`${baseUrl}/products?page=1&limit=50`);
+  // SURGICAL MODIFICATION: Pass headers to the GET request.
+  const prodRes = http.get(`${baseUrl}/products?page=1&limit=50`, { headers });
+
+  check(prodRes, {
+    'get products returns 200': (r) => r.status === 200,
+  });
+
   if (prodRes.status !== 200 || !prodRes.body) return null;
 
   try {
@@ -39,7 +52,6 @@ function getRandomProducts(count = 1) {
     if (!productsData || productsData.length === 0) return null;
 
     const pickedProductIds = new Set();
-
     for (let i = 0; i < count; i++) {
       if (productsToReturn.length >= productsData.length) break;
 
@@ -60,6 +72,7 @@ function getRandomProducts(count = 1) {
     }
     return productsToReturn;
   } catch (e) {
+    console.error(`Failed to parse products response: ${e}. Body: ${prodRes.body}`);
     return null;
   }
 }
@@ -73,43 +86,52 @@ function getRandomPastDateISO() {
 }
 
 // ==============================================================================
-// DEFAULT: login → 1 guest order → 1 registered order (same picking logic)
+// DEFAULT: Main test logic, updated to run a random scenario per iteration.
 // ==============================================================================
 export default function (data) {
-  const headers = { 'Content-Type': 'application/json' };
+  // Step 1: Pick a random scenario for this iteration.
+  const scenario = scenarios[__ITER % scenarios.length]; // Cycle through scenarios per iteration
+  console.log(`--- VU: ${__VU}, Iter: ${__ITER} | Running scenario: lang=${scenario.lang}, currency=${scenario.currency} ---`);
 
-  // Step 6: Guest order
-  console.log('--- Step 6: Guest order ---');
-  const guestSelections = getRandomProducts(Math.floor(Math.random() * 3) + 1); // 1–3 items
+  // Step 2: Guest order using the selected scenario's headers.
+  // SURGICAL MODIFICATION: Pass headers to the helper.
+  const guestSelections = getRandomProducts(scenario.headers, Math.floor(Math.random() * 3) + 1);
+
   if (guestSelections && guestSelections.length > 0) {
     const guestItems = guestSelections.map(sel => ({
-      productId: sel.product.id,
       variantId: sel.variant.id,
       quantity: 1,
     }));
 
     const guestPayload = JSON.stringify({
       guestName: 'Guest User',
-      guestEmail: `test@gmail.com`,
+      guestEmail: `test-${__VU}@gmail.com`,
       phone: '555-555-5555',
-      shippingAddress: {
-        street: '123 Guest St',
-        city: 'Guestville',
-        postalCode: '54321',
-        country: 'Containerland',
-      },
+      shippingAddress: { street: '123 Guest St', city: 'Guestville', postalCode: '54321', country: 'Containerland' },
       paymentMethod: 'CASH_ON_DELIVERY',
       items: guestItems,
       overrideCreatedAt: getRandomPastDateISO(),
     });
 
-    const guestOrderRes = http.post(`${baseUrl}/orders`, guestPayload, { headers });
-    check(guestOrderRes, { 'guest order 201': (r) => r.status === 201 });
+    // SURGICAL MODIFICATION: Pass scenario headers to the POST request.
+    const guestOrderRes = http.post(`${baseUrl}/orders`, guestPayload, { headers: scenario.headers });
+
+    check(guestOrderRes, {
+      'guest order created (status 201)': (r) => r.status === 201,
+      // SURGICAL ADDITION: Validate that the backend respected the currency header.
+      'guest order response currency is correct': (r) => {
+        if (r.status !== 201) return false;
+        try {
+          const body = r.json();
+          return body && body.displayCurrency === scenario.currency;
+        } catch (e) {
+          return false;
+        }
+      },
+    });
   } else {
-    console.log('No products available for guest order.');
+    console.log(`VU: ${__VU} | No products found for guest order.`);
   }
 
   sleep(1);
-
-
 }

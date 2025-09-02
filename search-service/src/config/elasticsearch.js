@@ -1,3 +1,5 @@
+// search-service/src/config/elasticsearch.js
+
 const { Client } = require('@elastic/elasticsearch');
 
 const ELASTICSEARCH_NODE = process.env.ELASTICSEARCH_NODE || 'http://localhost:9200';
@@ -32,18 +34,30 @@ const indexSettingsAndMappings = {
             id: { type: "keyword" },
             sku: { type: "keyword" },
             name: {
-                type: "text",
-                analyzer: "default_analyzer",
-                fields: { keyword: { type: "keyword", ignore_above: 256 } }
+                type: "object",
+                properties: {
+                    en: { type: "text", analyzer: "default_analyzer" },
+                    fr: { type: "text", analyzer: "default_analyzer" },
+                    ar: { type: "text", analyzer: "default_analyzer" }
+                }
             },
-            description: { type: "text", analyzer: "default_analyzer" },
+            description: {
+                type: "object",
+                properties: {
+                    en: { type: "text", analyzer: "default_analyzer" },
+                    fr: { type: "text", analyzer: "default_analyzer" },
+                    ar: { type: "text", analyzer: "default_analyzer" }
+                }
+            },
             isActive: { type: "boolean" },
             createdAt: { type: "date" },
             updatedAt: { type: "date" },
             averageRating: { type: "half_float" },
             reviewCount: { type: "integer" },
-            category_names: { type: "text", analyzer: "default_analyzer" },
-            category_slugs: { type: "keyword" }, // This is the critical line
+            category_names_en: { type: "text", analyzer: "default_analyzer" },
+            category_names_fr: { type: "text", analyzer: "default_analyzer" },
+            category_names_ar: { type: "text", analyzer: "default_analyzer" },
+            category_slugs: { type: "keyword" },
             variants: {
                 type: "nested",
                 properties: {
@@ -68,14 +82,10 @@ const indexSettingsAndMappings = {
     }
 };
 
-// =================================================================
-// THIS IS THE NEW, MORE ROBUST FUNCTION
-// It will DELETE the index if it exists to guarantee the mapping is correct.
-// =================================================================
 const ensureIndexIsCorrect = async () => {
     const indexName = PRODUCT_INDEX;
     console.log(`[Search Service] Ensuring index "${indexName}" has the correct mapping...`);
-    
+
     try {
         const existsResponse = await client.indices.exists({ index: indexName });
 
@@ -95,7 +105,6 @@ const ensureIndexIsCorrect = async () => {
     } catch (error) {
         const errorDetails = error.meta?.body?.error ? JSON.stringify(error.meta.body.error) : error.message;
         console.error(`[Search Service] CRITICAL: Error during index recreation for "${indexName}": ${errorDetails}`);
-        // If we fail here, the service is in a bad state, so we should crash.
         throw error;
     }
 };
@@ -106,17 +115,16 @@ const connectClient = async (maxRetries = 15, retryDelayMs = 5000) => {
             console.log(`[Search Service] Attempt ${attempt}/${maxRetries}: Pinging Elasticsearch at ${ELASTICSEARCH_NODE}...`);
             await client.ping();
             console.log(`[Search Service] Elasticsearch ping successful on attempt ${attempt}.`);
-            
-            // Now that we're connected, forcibly create the index with the correct mapping.
+
             await ensureIndexIsCorrect();
-            
+
             console.log('[Search Service] Elasticsearch client setup complete.');
-            return; // Success
+            return;
         } catch (error) {
             console.error(`[Search Service] Attempt ${attempt}/${maxRetries}: Connection/setup failed: ${error.message}`);
             if (attempt === maxRetries) {
                 console.error(`[Search Service] All ${maxRetries} attempts failed. Giving up.`);
-                throw error; // Crash the pod after the last attempt
+                throw error;
             }
             console.log(`[Search Service] Retrying in ${retryDelayMs / 1000} seconds...`);
             await new Promise(resolve => setTimeout(resolve, retryDelayMs));

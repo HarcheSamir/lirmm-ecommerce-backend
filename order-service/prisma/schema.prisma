@@ -8,7 +8,7 @@ datasource db {
 }
 model Product {
   id       String  @id
-  name     String
+  name     Json
   sku      String
   imageUrl String?
   @@map("denormalized_products")
@@ -18,9 +18,7 @@ model DenormalizedUser {
   name         String
   profileImage String?
   email        String
-
   orders Order[]
-
   @@map("denormalized_users")
 }
 enum OrderStatus {
@@ -31,7 +29,6 @@ enum OrderStatus {
   DELIVERED
   CANCELLED
 }
-
 enum ReturnRequestStatus {
   PENDING_APPROVAL
   AWAITING_CUSTOMER_RESPONSE
@@ -42,7 +39,6 @@ enum ReturnRequestStatus {
   COMPLETED
   CANCELLED
 }
-
 enum PaymentMethod {
   CREDIT_CARD
   CASH_ON_DELIVERY
@@ -55,15 +51,17 @@ model Order {
   phone           String?
   status          OrderStatus   @default(PENDING)
   paymentMethod   PaymentMethod
-  totalAmount     Decimal       @db.Decimal(10, 2)
   shippingAddress Json?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
-
   paymentTransactionId String?       @unique
   paymentFailureReason String?
-
   guest_token     String?       @unique
+
+  totalAmount     Decimal       @db.Decimal(10, 2)
+  displayCurrency String
+  exchangeRateAtPurchase Decimal @db.Decimal(12, 6)
+  displayTotalAmount Decimal     @db.Decimal(10, 2)
 
   items           OrderItem[]
   user            DenormalizedUser? @relation(fields: [userId], references: [id])
@@ -78,7 +76,7 @@ model OrderItem {
   orderId            String
   productId          String
   variantId          String
-  productName        String
+  productName        Json
   variantAttributes  Json
   sku                String
   imageUrl           String?
@@ -86,14 +84,12 @@ model OrderItem {
   costPriceAtTimeOfOrder Decimal? @db.Decimal(10, 2)
   quantity           Int
   order              Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
   returnRequestItems ReturnRequestItem[]
 
   @@index([orderId])
   @@index([productId])
   @@index([variantId])
 }
-
 model ReturnRequest {
   id            String              @id @default(uuid())
   orderId       String
@@ -103,36 +99,31 @@ model ReturnRequest {
   imageUrls     Json?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
-
   order         Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
   items         ReturnRequestItem[]
   comments      ReturnRequestComment[]
 
   @@index([orderId])
 }
-
 model ReturnRequestItem {
   id              String  @id @default(uuid())
   returnRequestId String
   orderItemId     String
   quantity        Int
-
   returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
   orderItem       OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
 
   @@unique([returnRequestId, orderItemId])
   @@index([orderItemId])
 }
-
 model ReturnRequestComment {
   id              String        @id @default(uuid())
   returnRequestId String
   authorId        String?
   authorName      String
-  commentText     String?       // <-- MODIFIED: Made optional
-  imageUrl        String?       // <-- ADDED: New field for image URL
+  commentText     String?
+  imageUrl        String?
   createdAt       DateTime      @default(now())
-
   returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
 
   @@index([returnRequestId])

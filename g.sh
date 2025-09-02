@@ -2,9 +2,7 @@ tree -I "node_modules"
 
 find . -type f \
   \( \
-    -name "Jenkinsfile" -o \
-    -name "Jenkinsfile-infrastructure" -o \
-    -path "*/kind-deployment/*" \
+    -path "*/search-service/*" \
   \) \
   ! -path "*/node_modules/*" \
   ! -path "*/.git/*" \

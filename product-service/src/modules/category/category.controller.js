@@ -1,33 +1,42 @@
-// product-service/src/modules/category/category.controller.js
-// --- COMPLETE AND UNABRIDGED FILE ---
-
 const prisma = require('../../config/prisma');
 const { sendMessage } = require('../../kafka/producer');
-const { categories } = require('../../utils/seed')
 
-// Helper function to build category tree
-const buildTree = (categories, parentId = null) => {
+const getLanguage = (req) => {
+    const langHeader = req.headers['accept-language']?.split(',')[0] || 'en';
+    return langHeader.substring(0, 2);
+};
+
+const localizeObject = (obj, lang, fields) => {
+    if (!obj) return obj;
+    const localized = { ...obj };
+    for (const field of fields) {
+        if (localized[field] && typeof localized[field] === 'object' && localized[field] !== null) {
+            localized[field] = localized[field][lang] || localized[field]['en'];
+        }
+    }
+    return localized;
+};
+
+const buildTree = (categories, parentId = null, lang) => {
     return categories
         .filter(category => category.parentId === parentId)
         .map(category => {
-            const children = buildTree(categories, category.id);
+            const children = buildTree(categories, category.id, lang);
             const node = { ...category };
-            // A node is a leaf if it has no children in the constructed tree.
+            
+            node.name = node.name[lang] || node.name['en'];
             node.isLeaf = children.length === 0;
             if (children.length > 0) {
                 node.children = children;
             }
-            // Remove helper counts from the final output
             delete node._count;
             return node;
         });
 };
 
-// Create a new category
 const createCategory = async (req, res, next) => {
     try {
         const { name, slug, parentId, imageUrl } = req.body;
-
         if (!name || !slug) {
             return res.status(400).json({ message: 'Name and slug are required' });
         }
@@ -38,33 +47,15 @@ const createCategory = async (req, res, next) => {
                     where: { id: parentId },
                     include: { _count: { select: { products: true } } },
                 });
-
-                if (!parentCategory) {
-                    throw { statusCode: 404, message: `Parent category with id '${parentId}' not found.` };
-                }
-                if (parentCategory.parentId) {
-                    throw { statusCode: 400, message: 'Cannot create a category under a level 2 category. Hierarchy is limited to 2 levels.' };
-                }
-                if (parentCategory._count.products > 0) {
-                    throw { statusCode: 409, message: 'Cannot add a child to a category that has products assigned to it.' };
-                }
+                if (!parentCategory) { throw { statusCode: 404, message: `Parent category with id '${parentId}' not found.` }; }
+                if (parentCategory.parentId) { throw { statusCode: 400, message: 'Cannot create a category under a level 2 category. Hierarchy is limited to 2 levels.' }; }
+                if (parentCategory._count.products > 0) { throw { statusCode: 409, message: 'Cannot add a child to a category that has products assigned to it.' }; }
             }
-
-            const created = await tx.category.create({
-                data: { name, slug, parentId, imageUrl },
-            });
-            return created;
+            return tx.category.create({ data: { name, slug, parentId, imageUrl } });
         });
 
         await sendMessage('CATEGORY_CREATED', newCategory);
-        // Add the new fields to the response for consistency
-        res.status(201).json({
-            ...newCategory,
-            isLeaf: true,
-            productCount: 0,
-            subCategoryCount: 0
-        });
-
+        res.status(201).json({ ...newCategory, isLeaf: true, productCount: 0, subCategoryCount: 0 });
     } catch (err) {
         if (err.statusCode) { return res.status(err.statusCode).json({ message: err.message }); }
         if (err.code === 'P2002' && err.meta?.target.includes('slug')) {
@@ -74,94 +65,23 @@ const createCategory = async (req, res, next) => {
     }
 };
 
-// Create many categories
-const createManyCategories = async (req, res, next) => {
-    try {
-        const categoriesData = categories;
-        if (!Array.isArray(categoriesData) || categoriesData.length === 0) {
-            return res.status(400).json({ message: 'Request body must be a non-empty array of category objects.' });
-        }
-
-        for (const c of categoriesData) {
-            if (!c.name || !c.slug) {
-                throw { statusCode: 400, message: `All categories must have a name and slug. Error found in: ${JSON.stringify(c)}` };
-            }
-        }
-
-        let createdCategories = [];
-
-        await prisma.$transaction(async (tx) => {
-            const rootCategoriesData = categoriesData.filter(c => !c.parentSlug);
-            const parentMap = new Map();
-
-            for (const categoryData of rootCategoriesData) {
-                const newCategory = await tx.category.create({
-                    data: { name: categoryData.name, slug: categoryData.slug, imageUrl: categoryData.imageUrl, },
-                });
-                createdCategories.push(newCategory);
-                parentMap.set(newCategory.slug, newCategory.id);
-            }
-
-            const childCategoriesData = categoriesData.filter(c => c.parentSlug);
-            
-            for (const categoryData of childCategoriesData) {
-                let parentId = parentMap.get(categoryData.parentSlug);
-                if (!parentId) {
-                    const existingParent = await tx.category.findUnique({ where: { slug: categoryData.parentSlug }, select: { id: true } });
-                    if (!existingParent) {
-                        throw { statusCode: 400, message: `The specified parentSlug '${categoryData.parentSlug}' for category '${categoryData.name}' does not exist in the database or in this batch.` };
-                    }
-                    parentId = existingParent.id;
-                    parentMap.set(categoryData.parentSlug, parentId);
-                }
-                
-                const newCategory = await tx.category.create({
-                    data: { name: categoryData.name, slug: categoryData.slug, parentId: parentId, imageUrl: categoryData.imageUrl, },
-                });
-                createdCategories.push(newCategory);
-            }
-        });
-
-        const allCreated = await prisma.category.findMany({
-            where: { id: { in: createdCategories.map(c => c.id) } },
-            include: { _count: { select: { children: true, products: true } } }
-        });
-
-        const responseWithCounts = allCreated.map(c => ({
-            ...c,
-            isLeaf: c._count.children === 0,
-            productCount: c._count.products,
-            subCategoryCount: c._count.children
-        }));
-
-        for (const category of responseWithCounts) {
-            await sendMessage('CATEGORY_CREATED', category);
-        }
-
-        res.status(201).json({
-            message: `Successfully created ${createdCategories.length} categories.`,
-            createdCategories: responseWithCounts.map(({_count, ...rest}) => rest)
-        });
-
-    } catch (err) {
-        if (err.statusCode) { return res.status(err.statusCode).json({ message: err.message }); }
-        if (err.code === 'P2002') { return res.status(409).json({ message: 'A category in the batch has a slug that already exists.' }); }
-        next(err);
-    }
-};
-
-// Get all categories (flat or tree)
 const getCategories = async (req, res, next) => {
     try {
         const { format } = req.query;
+        const lang = getLanguage(req);
+
+        // CORRECTED: Fetch without sorting by JSON path
         const categories = await prisma.category.findMany({
-            orderBy: { name: 'asc' },
-            include: {
-                _count: { select: { children: true, products: true } },
-            },
+            include: { _count: { select: { children: true, products: true } } },
+        });
+        
+        // CORRECTED: Perform sorting in-memory after fetching
+        categories.sort((a, b) => {
+            const nameA = a.name[lang] || a.name['en'] || '';
+            const nameB = b.name[lang] || b.name['en'] || '';
+            return nameA.localeCompare(nameB);
         });
 
-        // Add the new fields to the response objects
         const categoriesWithCounts = categories.map(c => ({
             ...c,
             isLeaf: c._count.children === 0,
@@ -170,13 +90,13 @@ const getCategories = async (req, res, next) => {
         }));
 
         if (format === 'tree') {
-            const categoryTree = buildTree(categoriesWithCounts);
+            const categoryTree = buildTree(categoriesWithCounts, null, lang);
             res.json(categoryTree);
         } else {
-            // Remove the helper _count object before sending the final response
             const flatList = categoriesWithCounts.map(c => {
-                const { _count, ...rest } = c;
-                return rest;
+                const localized = localizeObject(c, lang, ['name']);
+                delete localized._count;
+                return localized;
             });
             res.json(flatList);
         }
@@ -185,65 +105,40 @@ const getCategories = async (req, res, next) => {
     }
 };
 
-// Get a single category by ID
-const getCategoryById = async (req, res, next) => {
+const getCategoryByIdOrSlug = async (req, res, next) => {
     try {
-        const { id } = req.params;
+        const { id, slug } = req.params;
+        const lang = getLanguage(req);
+        const where = id ? { id } : { slug };
+
         const category = await prisma.category.findUnique({
-            where: { id },
-            // Add 'products' to the _count select
+            where,
             include: { parent: true, children: true, _count: { select: { children: true, products: true } } }
         });
 
-        if (!category) {
-            return res.status(404).json({ message: 'Category not found' });
+        if (!category) { return res.status(404).json({ message: 'Category not found' }); }
+
+        const localizedCategory = localizeObject(category, lang, ['name']);
+        if (localizedCategory.parent) {
+            localizedCategory.parent = localizeObject(localizedCategory.parent, lang, ['name']);
+        }
+        if (localizedCategory.children) {
+            localizedCategory.children = localizedCategory.children.map(child => localizeObject(child, lang, ['name']));
         }
 
-        // Add the new fields to the response object
         const response = {
-            ...category,
+            ...localizedCategory,
             isLeaf: category._count.children === 0,
             productCount: category._count.products,
             subCategoryCount: category._count.children
         };
-        delete response._count; // Clean up the helper object
+        delete response._count;
         res.json(response);
-
     } catch (err) {
         next(err);
     }
 };
 
-// Get a single category by Slug
-const getCategoryBySlug = async (req, res, next) => {
-    try {
-        const { slug } = req.params;
-        const category = await prisma.category.findUnique({
-            where: { slug },
-            // Add 'products' to the _count select
-            include: { parent: true, children: true, _count: { select: { children: true, products: true } } }
-        });
-
-        if (!category) {
-            return res.status(404).json({ message: 'Category not found' });
-        }
-
-        // Add the new fields to the response object
-        const response = {
-            ...category,
-            isLeaf: category._count.children === 0,
-            productCount: category._count.products,
-            subCategoryCount: category._count.children
-        };
-        delete response._count; // Clean up the helper object
-        res.json(response);
-
-    } catch (err) {
-        next(err);
-    }
-};
-
-// Update a category
 const updateCategory = async (req, res, next) => {
     try {
         const { id } = req.params;
@@ -256,7 +151,6 @@ const updateCategory = async (req, res, next) => {
             });
 
             if (!categoryToUpdate) { throw { statusCode: 404, message: 'Category not found.' }; }
-
             if (parentId !== undefined && categoryToUpdate.parentId !== parentId) {
                 if (parentId !== null) {
                     if (parentId === id) { throw { statusCode: 400, message: "A category cannot be its own parent." }; }
@@ -267,13 +161,11 @@ const updateCategory = async (req, res, next) => {
                     if (categoryToUpdate._count.children > 0) { throw { statusCode: 409, message: "Cannot move a category that has children. Move its children first." }; }
                 }
             }
-
             return tx.category.update({ where: { id }, data: { name, slug, parentId, imageUrl } });
         });
 
         await sendMessage('CATEGORY_UPDATED', updatedCategory);
         res.json(updatedCategory);
-
     } catch (err) {
         if (err.statusCode) { return res.status(err.statusCode).json({ message: err.message }); }
         if (err.code === 'P2002' && err.meta?.target.includes('slug')) {
@@ -283,7 +175,6 @@ const updateCategory = async (req, res, next) => {
     }
 };
 
-// Delete a category
 const deleteCategory = async (req, res, next) => {
     try {
         const { id } = req.params;
@@ -297,7 +188,6 @@ const deleteCategory = async (req, res, next) => {
             if (categoryToDelete._count.products > 0) { throw { statusCode: 409, message: 'Cannot delete category with associated products. Disassociate products first.' }; }
             await tx.category.delete({ where: { id } });
         });
-
         await sendMessage('CATEGORY_DELETED', { id });
         res.status(204).end();
     } catch (err) {
@@ -306,13 +196,63 @@ const deleteCategory = async (req, res, next) => {
     }
 };
 
-// This export block remains unchanged and correct for your router.
+const createManyCategories = async (req, res, next) => {
+    try {
+        const categoriesData = require('../../utils/seed').categories;
+        if (!Array.isArray(categoriesData) || categoriesData.length === 0) {
+            return res.status(400).json({ message: 'Category data must be a non-empty array.' });
+        }
+
+        for (const c of categoriesData) {
+            if (!c.name || typeof c.name !== 'object' || !c.slug) {
+                throw { statusCode: 400, message: `All categories must have a slug and a multilingual name object.` };
+            }
+        }
+
+        let createdCategories = [];
+        await prisma.$transaction(async (tx) => {
+            const parentMap = new Map();
+            for (const categoryData of categoriesData.filter(c => !c.parentSlug)) {
+                const newCategory = await tx.category.create({
+                    data: { name: categoryData.name, slug: categoryData.slug, imageUrl: categoryData.imageUrl },
+                });
+                createdCategories.push(newCategory);
+                parentMap.set(newCategory.slug, newCategory.id);
+            }
+            for (const categoryData of categoriesData.filter(c => c.parentSlug)) {
+                const parentId = parentMap.get(categoryData.parentSlug);
+                if (!parentId) {
+                    throw { statusCode: 400, message: `Parent slug '${categoryData.parentSlug}' for category '${categoryData.slug}' not found in this batch.` };
+                }
+                const newCategory = await tx.category.create({
+                    data: { name: categoryData.name, slug: categoryData.slug, parentId: parentId, imageUrl: categoryData.imageUrl },
+                });
+                createdCategories.push(newCategory);
+            }
+        });
+        
+        for (const category of createdCategories) {
+            await sendMessage('CATEGORY_CREATED', category);
+        }
+
+        res.status(201).json({
+            message: `Successfully created ${createdCategories.length} categories.`,
+            createdCategories: createdCategories
+        });
+
+    } catch (err) {
+        if (err.statusCode) { return res.status(err.statusCode).json({ message: err.message }); }
+        if (err.code === 'P2002') { return res.status(409).json({ message: 'A category in the batch has a slug that already exists.'}); }
+        next(err);
+    }
+};
+
 module.exports = {
     createManyCategories,
     createCategory,
     getCategories,
-    getCategoryById,
-    getCategoryBySlug,
+    getCategoryById: getCategoryByIdOrSlug,
+    getCategoryBySlug: getCategoryByIdOrSlug,
     updateCategory,
     deleteCategory,
 };

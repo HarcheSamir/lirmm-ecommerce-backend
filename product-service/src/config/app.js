@@ -7,12 +7,13 @@ const categoryRoutes = require('../modules/category/category.routes');
 const productRoutes = require('../modules/product/product.routes');
 const variantRoutes = require('../modules/variant/variant.routes');
 const stockRoutes = require('../modules/stock/stock.routes');
+const currencyRoutes = require('../modules/currency/currency.routes');
 const errorHandler = require('../middlewares/errorHandler');
 
 const app = express();
 
 // Global Middlewares
-app.use(cors()); // Configure CORS appropriately for production
+app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 if (process.env.NODE_ENV === 'development') {
     app.use(morgan('dev'));
@@ -20,15 +21,15 @@ if (process.env.NODE_ENV === 'development') {
 
 // Health Check Endpoint
 app.get('/health', (req, res) => {
-    // TODO: Add database connection check if needed
     res.status(200).json({ status: 'UP', service: process.env.SERVICE_NAME });
 });
 
 // API Routes
 app.use('/categories', categoryRoutes);
+app.use('/variants', variantRoutes);
+app.use('/stock', stockRoutes);
+app.use('/currencies', currencyRoutes);
 app.use('/', productRoutes);
-app.use('/variants', variantRoutes); // Routes for direct variant manipulation if needed (e.g., stock)
-app.use('/stock', stockRoutes);     // Routes specifically for stock movements
 
 
 // Global Error Handler - Must be the last middleware
