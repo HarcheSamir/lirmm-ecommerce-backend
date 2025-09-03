@@ -229,6 +229,7 @@ spec:
     metadata:
       labels:
         app: auth-db
+        component: database
       annotations:
         sidecar.istio.io/inject: "false"
     spec:
@@ -281,6 +282,7 @@ spec:
     metadata:
       labels:
         app: product-db
+        component: database
       annotations:
         sidecar.istio.io/inject: "false"
     spec:
@@ -333,6 +335,7 @@ spec:
     metadata:
       labels:
         app: order-db
+        component: database
       annotations:
         sidecar.istio.io/inject: "false"
     spec:
@@ -385,6 +388,7 @@ spec:
     metadata:
       labels:
         app: review-db
+        component: database
       annotations:
         sidecar.istio.io/inject: "false"
     spec:
@@ -438,6 +442,7 @@ spec:
     metadata:
       labels:
         app: stats-db
+        component: database
       annotations:
         sidecar.istio.io/inject: "false"
     spec:
