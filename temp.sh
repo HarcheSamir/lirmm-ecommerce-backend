@@ -6,8 +6,6 @@ find . -type f \
     -path "*/auth-service/*"  -o \
     -path "*/order-service/*"  -o \
     -path "*/payment-service/*"  -o \
-    -path "*/notification-service/*"  -o \
-    -path "*/search-service/*"  -o \
     -path "*/product-service/*"   \
   \) \
   ! -path "*/node_modules/*" \

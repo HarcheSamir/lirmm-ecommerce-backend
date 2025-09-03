@@ -47,6 +47,9 @@ const ALL_PERMISSIONS = [
     // Currency Permissions
     { name: 'read:currency', description: 'Read currency exchange rates' },
     { name: 'write:currency', description: 'Create/Update currency exchange rates' },
+    //promotion
+    { name: 'read:promotion', description: 'Read promotion data' },
+    { name: 'write:promotion', description: 'Create/update/delete promotions' },
 
 ];
 

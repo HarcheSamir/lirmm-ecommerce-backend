@@ -1,13 +1,9 @@
 // stats-service/src/kafka/consumer.js
 const { Kafka, logLevel } = require('kafkajs');
 const prisma = require('../config/prisma');
-const { startOfDay } = require('date-fns');
 
 const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'kafka:9092').split(',');
 const SERVICE_NAME = process.env.SERVICE_NAME || 'stats-service';
-const ORDER_TOPIC = 'order_events';
-const AUTH_TOPIC = 'auth_events';
-const PRODUCT_TOPIC = 'product_events';
 
 const kafka = new Kafka({
     clientId: `${SERVICE_NAME}-consumer`,
@@ -17,87 +13,129 @@ const kafka = new Kafka({
 
 const consumer = kafka.consumer({ groupId: `${SERVICE_NAME}-group` });
 
-const processMessage = async ({ topic, partition, message }) => {
+const getUTCDate = (dateString) => {
+    const date = new Date(dateString);
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+};
+
+const processMessage = async ({ topic, message }) => {
     try {
         const event = JSON.parse(message.value.toString());
-        const logId = event.payload?.id || 'N/A';
-        console.log(`Received event: Type [${event.type}] from [${event.sourceService}] for ID [${logId}]`);
+        console.log(`Received event: Type [${event.type}] from [${event.sourceService}] on Topic [${topic}]`);
 
-        if (topic === AUTH_TOPIC && event.type === 'USER_CREATED') {
-            const user = event.payload;
-            const creationDate = startOfDay(new Date(user.createdAt));
-            await prisma.dailyAggregate.upsert({
-                where: { date: creationDate },
-                create: { date: creationDate, newCustomerCount: 1 },
-                update: { newCustomerCount: { increment: 1 } },
-            });
+        if (topic === 'auth_events' && event.type === 'USER_CREATED') {
+            await handleUserCreated(event.payload);
         }
         
-        if (topic === PRODUCT_TOPIC && event.type === 'PRODUCT_UPDATED') {
-            const product = event.payload;
-            await prisma.productPerformance.update({
-                where: { productId: product.id },
-                data: { productName: product.name }
-            }).catch(() => {});
-        }
-        
-        // *** THIS IS THE FIX ***
-        // Now listens for ORDER_PAID in addition to ORDER_CREATED.
-        if (topic === ORDER_TOPIC && (event.type === 'ORDER_CREATED' || event.type === 'ORDER_PAID')) {
-            const order = event.payload;
-            if (!['PAID', 'DELIVERED'].includes(order.status)) return;
-            
-            const orderDate = startOfDay(new Date(order.createdAt));
-            let orderRevenue = 0;
-            let orderCogs = 0;
-
-            for (const item of order.items) {
-                const itemRevenue = parseFloat(item.priceAtTimeOfOrder) * item.quantity;
-                const itemCogs = parseFloat(item.costPriceAtTimeOfOrder || 0) * item.quantity;
-                orderRevenue += itemRevenue;
-                orderCogs += itemCogs;
-
-                await prisma.productPerformance.upsert({
-                    where: { productId: item.productId },
-                    create: {
-                        productId: item.productId,
-                        productName: item.productName,
-                        totalUnitsSold: item.quantity,
-                        totalRevenueGenerated: itemRevenue,
-                    },
-                    update: {
-                        productName: item.productName,
-                        totalUnitsSold: { increment: item.quantity },
-                        totalRevenueGenerated: { increment: itemRevenue },
-                    },
-                });
-            }
-
-            await prisma.dailyAggregate.upsert({
-                where: { date: orderDate },
-                create: {
-                    date: orderDate,
-                    revenue: orderRevenue,
-                    cogs: orderCogs,
-                    orderCount: 1,
-                },
-                update: {
-                    revenue: { increment: orderRevenue },
-                    cogs: { increment: orderCogs },
-                    orderCount: { increment: 1 },
-                },
-            });
+        if (topic === 'order_events' && event.type === 'ORDER_PAID') {
+            await handleOrderPaid(event.payload);
         }
 
     } catch (error) {
-        console.error(`Error processing Kafka message: ${error.message}`, error);
+        console.error(`Error processing Kafka event: ${error.message}`, error);
     }
+};
+
+const handleUserCreated = async (user) => {
+    await prisma.$transaction(async (tx) => {
+        const eventDate = user.createdAt ? getUTCDate(user.createdAt) : getUTCDate(new Date().toISOString());
+
+        await tx.kpi.upsert({
+            where: { key: 'totalCustomers' },
+            update: { value: { increment: 1 } },
+            create: { key: 'totalCustomers', label: 'Total Customers', value: 1 },
+        });
+
+        const year = eventDate.getUTCFullYear();
+        const month = eventDate.getUTCMonth() + 1;
+
+        await tx.monthlyAggregate.upsert({
+            where: { year_month: { year, month } },
+            update: { newCustomers: { increment: 1 } },
+            create: { year, month, newCustomers: 1 },
+        });
+
+        await tx.dailyAggregate.upsert({
+            where: { date: eventDate },
+            update: { newCustomers: { increment: 1 } },
+            create: { date: eventDate, newCustomers: 1 },
+        });
+    });
+    console.log("Processed USER_CREATED: Incremented customer KPIs.");
+};
+
+const handleOrderPaid = async (order) => {
+    await prisma.$transaction(async (tx) => {
+        const eventDate = order.createdAt ? getUTCDate(order.createdAt) : getUTCDate(new Date().toISOString());
+        const orderTotal = parseFloat(order.totalAmount);
+        let orderExpenses = 0;
+
+        for (const item of order.items) {
+            const cost = parseFloat(item.costPriceAtTimeOfOrder) || 0;
+            orderExpenses += cost * item.quantity;
+
+            await tx.productPerformance.upsert({
+                where: { variantId: item.variantId },
+                update: {
+                    totalQuantitySold: { increment: item.quantity },
+                    totalRevenueGenerated: { increment: parseFloat(item.priceAtTimeOfOrder) * item.quantity },
+                },
+                create: {
+                    variantId: item.variantId,
+                    productId: item.productId,
+                    productName: item.productName,
+                    variantAttributes: item.variantAttributes,
+                    totalQuantitySold: item.quantity,
+                    totalRevenueGenerated: parseFloat(item.priceAtTimeOfOrder) * item.quantity,
+                },
+            });
+        }
+
+        await tx.kpi.upsert({
+            where: { key: 'totalOrders' },
+            update: { value: { increment: 1 } },
+            create: { key: 'totalOrders', label: 'Total Orders', value: 1 },
+        });
+
+        await tx.kpi.upsert({
+            where: { key: 'totalRevenue' },
+            update: { value: { increment: orderTotal } },
+            create: { key: 'totalRevenue', label: 'Total Revenue', value: orderTotal },
+        });
+
+        const year = eventDate.getUTCFullYear();
+        const month = eventDate.getUTCMonth() + 1;
+
+        await tx.monthlyAggregate.upsert({
+            where: { year_month: { year, month } },
+            update: {
+                newOrders: { increment: 1 },
+                totalRevenue: { increment: orderTotal },
+                totalExpenses: { increment: orderExpenses },
+            },
+            create: {
+                year, month, newOrders: 1, totalRevenue: orderTotal, totalExpenses: orderExpenses,
+            },
+        });
+
+        await tx.dailyAggregate.upsert({
+            where: { date: eventDate },
+            update: {
+                newOrders: { increment: 1 },
+                totalRevenue: { increment: orderTotal },
+            },
+            create: {
+                date: eventDate, newOrders: 1, totalRevenue: orderTotal,
+            },
+        });
+    });
+    console.log(`Processed ORDER_PAID for order ${order.id}.`);
 };
 
 const connectConsumer = async () => {
     try {
         await consumer.connect();
-        const topics = [ORDER_TOPIC, AUTH_TOPIC, PRODUCT_TOPIC];
+        const topics = ['auth_events', 'order_events'];
         await consumer.subscribe({ topics, fromBeginning: true });
         console.log(`Kafka consumer subscribed to topics: [${topics.join(', ')}]`);
         await consumer.run({ eachMessage: processMessage });

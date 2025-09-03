@@ -1,183 +1,143 @@
 // stats-service/src/modules/stats/stats.controller.js
 const prisma = require('../../config/prisma');
-const { subDays, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, subMonths, format, getMonth, getYear } = require('date-fns');
 
 const calculateChange = (current, previous) => {
-    if (previous === 0) return current > 0 ? 100.0 : 0.0;
-    const change = ((current - previous) / previous) * 100;
-    return isNaN(change) ? 0.0 : change;
+    if (previous > 0) {
+        return ((current - previous) / previous) * 100;
+    }
+    return current > 0 ? 100 : 0;
 };
 
 const getKpis = async (req, res, next) => {
     try {
         const now = new Date();
-        const currentPeriodStart = subDays(now, 29);
-        const previousPeriodStart = subDays(now, 59);
-        const previousPeriodEnd = subDays(now, 30);
+        const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+        
+        const thirtyDaysAgo = new Date(today);
+        thirtyDaysAgo.setUTCDate(today.getUTCDate() - 30);
+        
+        const sixtyDaysAgo = new Date(today);
+        sixtyDaysAgo.setUTCDate(today.getUTCDate() - 60);
 
-        const [totalCustomersResult, currentPeriodData, previousPeriodData] = await Promise.all([
-            // CORRECTED QUERY: Sum from its own aggregated data, not from a foreign table.
+        const [lifetimeKpis, recentPeriodAggregates, previousPeriodAggregates] = await Promise.all([
+            prisma.kpi.findMany(),
             prisma.dailyAggregate.aggregate({
-                _sum: { newCustomerCount: true },
+                _sum: { newCustomers: true, newOrders: true, totalRevenue: true },
+                where: { date: { gte: thirtyDaysAgo, lt: today } },
             }),
             prisma.dailyAggregate.aggregate({
-                _sum: { revenue: true, cogs: true, orderCount: true, newCustomerCount: true },
-                where: { date: { gte: currentPeriodStart, lte: now } },
+                _sum: { newCustomers: true, newOrders: true, totalRevenue: true },
+                where: { date: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } },
             }),
-            prisma.dailyAggregate.aggregate({
-                _sum: { revenue: true, cogs: true, orderCount: true, newCustomerCount: true },
-                where: { date: { gte: previousPeriodStart, lte: previousPeriodEnd } },
-            })
         ]);
-        
-        const totalCustomers = totalCustomersResult._sum.newCustomerCount || 0;
 
-        const currentRevenue = Number(currentPeriodData._sum.revenue) || 0;
-        const previousRevenue = Number(previousPeriodData._sum.revenue) || 0;
-        const currentOrders = currentPeriodData._sum.orderCount || 0;
-        const previousOrders = previousPeriodData._sum.orderCount || 0;
-        const currentNewCustomers = currentPeriodData._sum.newCustomerCount || 0;
-        const previousNewCustomers = previousPeriodData._sum.newCustomerCount || 0;
+        const kpiMap = lifetimeKpis.reduce((acc, kpi) => {
+            acc[kpi.key] = parseFloat(kpi.value);
+            return acc;
+        }, {});
 
-        const currentGrossProfit = currentRevenue - (Number(currentPeriodData._sum.cogs) || 0);
-        const previousGrossProfit = previousRevenue - (Number(previousPeriodData._sum.cogs) || 0);
-        
-        const profitGrowthRate = calculateChange(currentGrossProfit, previousGrossProfit);
+        const recent = recentPeriodAggregates._sum;
+        const previous = previousPeriodAggregates._sum;
+
+        const customerChange = calculateChange(recent.newCustomers || 0, previous.newCustomers || 0);
+        const orderChange = calculateChange(recent.newOrders || 0, previous.newOrders || 0);
+        const revenueChange = calculateChange(parseFloat(recent.totalRevenue) || 0, parseFloat(previous.totalRevenue) || 0);
 
         res.json({
             customers: {
-                value: totalCustomers,
-                change: calculateChange(currentNewCustomers, previousNewCustomers).toFixed(2)
+                value: kpiMap.totalCustomers || 0,
+                change: customerChange.toFixed(2),
             },
             orders: {
-                value: currentOrders,
-                change: calculateChange(currentOrders, previousOrders).toFixed(2)
+                value: kpiMap.totalOrders || 0,
+                change: orderChange.toFixed(2),
             },
             revenue: {
-                value: currentRevenue,
-                change: calculateChange(currentRevenue, previousRevenue).toFixed(2)
+                value: kpiMap.totalRevenue || 0,
+                change: revenueChange.toFixed(2),
             },
             growth: {
-                value: profitGrowthRate.toFixed(1),
-                change: "0.00" 
+                value: revenueChange.toFixed(2),
+            },
+        });
+
+    } catch (err) {
+        next(err);
+    }
+};
+
+const getRevenueTimeSeries = async (req, res, next) => {
+    try {
+        const now = new Date();
+        const lastMonth = now.getUTCMonth(); 
+        const yearForLastMonth = now.getUTCFullYear();
+        
+        const startDateThisPeriod = new Date(Date.UTC(yearForLastMonth, lastMonth - 11, 1)); 
+        
+        const data = await prisma.monthlyAggregate.findMany({
+            where: {
+                OR: [
+                    { year: { gte: startDateThisPeriod.getUTCFullYear() - 1 } },
+                ]
+            },
+            orderBy: [{ year: 'asc' }, { month: 'asc' }]
+        });
+        
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        let result = [];
+
+        for (let i = 0; i < 12; i++) {
+            let date = new Date(startDateThisPeriod);
+            date.setUTCMonth(startDateThisPeriod.getUTCMonth() + i);
+
+            let currentYear = date.getUTCFullYear();
+            let currentMonth = date.getUTCMonth() + 1;
+            let lastYear = currentYear - 1;
+
+            const thisYearData = data.find(d => d.year === currentYear && d.month === currentMonth);
+            const lastYearData = data.find(d => d.year === lastYear && d.month === currentMonth);
+
+            result.push({
+                name: monthNames[date.getUTCMonth()],
+                expenses: parseFloat(thisYearData?.totalExpenses || 0),
+                revenueThisYear: parseFloat(thisYearData?.totalRevenue || 0),
+                revenueLastYear: parseFloat(lastYearData?.totalRevenue || 0),
+            });
+        }
+        
+        res.json(result);
+    } catch (err) {
+        next(err);
+    }
+};
+
+const getTopSellingProducts = async (req, res, next) => {
+    try {
+        const lang = req.headers['accept-language']?.split(',')[0].substring(0, 2) || 'en';
+        const limit = parseInt(req.query.limit, 10) || 5;
+
+        const products = await prisma.productPerformance.findMany({
+            take: limit,
+            orderBy: {
+                totalRevenueGenerated: 'desc'
             }
         });
 
-    } catch (err) { next(err); }
-};
-
-const getRevenueCogsOverTime = async (req, res, next) => {
-    try {
-        const now = new Date();
-        const lastMonth = subMonths(now, 1);
-        const sixMonthsAgo = startOfMonth(subMonths(now, 6));
-
-        const data = await prisma.$queryRaw`
-            SELECT 
-                DATE_TRUNC('month', date)::DATE as month,
-                SUM(revenue) as revenue,
-                SUM(cogs) as cogs
-            FROM "daily_aggregates"
-            WHERE date >= ${sixMonthsAgo} AND date <= ${endOfMonth(lastMonth)}
-            GROUP BY month
-            ORDER BY month ASC;
-        `;
-        
-        const formattedData = data.map(row => ({
-            name: format(new Date(row.month), 'MMM'),
-            revenue: parseFloat(row.revenue),
-            spendings: parseFloat(row.cogs)
-        }));
-
-        res.json(formattedData);
-    } catch (err) { next(err); }
-};
-
-const getRevenueYoY = async (req, res, next) => {
-    try {
-        const now = new Date();
-        const lastFullMonth = endOfMonth(subMonths(now, 1));
-        
-        const currentYearStart = startOfMonth(subMonths(now, 6));
-        const lastYearStart = subMonths(currentYearStart, 12);
-        const lastYearEnd = endOfMonth(subMonths(now, 13));
-        
-        const [currentYearData, lastYearData] = await Promise.all([
-             prisma.$queryRaw`
-                SELECT DATE_TRUNC('month', date)::DATE as month, SUM(revenue) as total FROM "daily_aggregates"
-                WHERE date >= ${currentYearStart} AND date <= ${lastFullMonth} GROUP BY month ORDER BY month`,
-             prisma.$queryRaw`
-                SELECT DATE_TRUNC('month', date)::DATE as month, SUM(revenue) as total FROM "daily_aggregates"
-                WHERE date >= ${lastYearStart} AND date <= ${lastYearEnd} GROUP BY month ORDER BY month`,
-        ]);
-
-        const lastYearMap = new Map(lastYearData.map(d => [getMonth(new Date(d.month)), parseFloat(d.total)]));
-
-        const response = currentYearData.map(d => {
-            const monthDate = new Date(d.month);
-            const month = getMonth(monthDate);
-            return {
-                name: format(monthDate, 'MMM'),
-                current: parseFloat(d.total),
-                previous: lastYearMap.get(month) || 0
-            };
-        });
-
-        res.json(response);
-
-    } catch (err) { next(err); }
-};
-
-const getRevenueWoW = async (req, res, next) => {
-    try {
-        const now = new Date();
-        const startOfCurrentWeek = startOfWeek(now, { weekStartsOn: 1 }); // Monday
-        const endOfCurrentWeek = endOfWeek(now, { weekStartsOn: 1 });
-        const startOfPreviousWeek = startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 });
-        const endOfPreviousWeek = endOfWeek(subWeeks(now, 1), { weekStartsOn: 1 });
-
-        const [currentWeekData, previousWeekData] = await Promise.all([
-            prisma.dailyAggregate.aggregate({
-                _sum: { revenue: true },
-                where: { date: { gte: startOfCurrentWeek, lte: endOfCurrentWeek } },
-            }),
-            prisma.dailyAggregate.aggregate({
-                _sum: { revenue: true },
-                where: { date: { gte: startOfPreviousWeek, lte: endOfPreviousWeek } },
-            })
-        ]);
-
-        res.json({
-            currentWeekRevenue: Number(currentWeekData._sum.revenue) || 0,
-            previousWeekRevenue: Number(previousWeekData._sum.revenue) || 0
-        });
-
-    } catch (err) { next(err); }
-};
-
-const getTopProducts = async (req, res, next) => {
-    try {
-        const limit = parseInt(req.query.limit) || 5;
-        const products = await prisma.productPerformance.findMany({
-            orderBy: { totalRevenueGenerated: 'desc' },
-            take: limit
-        });
-
         const formattedProducts = products.map(p => ({
-            name: p.productName,
-            price: (p.totalUnitsSold > 0 ? (Number(p.totalRevenueGenerated) / p.totalUnitsSold) : 0).toFixed(2),
-            quantity: p.totalUnitsSold,
-            amount: Number(p.totalRevenueGenerated).toFixed(2)
+            name: p.productName[lang] || p.productName['en'],
+            attributes: p.variantAttributes,
+            quantity: p.totalQuantitySold,
+            amount: parseFloat(p.totalRevenueGenerated)
         }));
 
         res.json(formattedProducts);
-    } catch (err) { next(err); }
+    } catch (err) {
+        next(err);
+    }
 };
 
 module.exports = {
     getKpis,
-    getRevenueCogsOverTime,
-    getRevenueYoY,
-    getRevenueWoW,
-    getTopProducts
+    getRevenueTimeSeries,
+    getTopSellingProducts,
 };

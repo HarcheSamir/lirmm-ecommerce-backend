@@ -95,35 +95,41 @@ const processMessage = async ({ topic, partition, message }) => {
             }
 
             const { orderId, status, transactionId, reason, refundTransactionId } = paymentData;
-            let dataToUpdate = {};
+            
+            const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true }});
+            if (!order) {
+                console.warn(`Order ${orderId} not found, cannot process payment event.`);
+                return;
+            }
 
             if (status === 'PAYMENT_SUCCESS') {
-                dataToUpdate.status = 'PAID';
-                dataToUpdate.paymentTransactionId = transactionId;
+                const updatedOrder = await prisma.order.update({
+                    where: { id: orderId },
+                    data: { status: 'PAID', paymentTransactionId: transactionId },
+                    include: { items: true }
+                });
+                // --- START: SURGICAL ADDITION ---
+                await sendMessage('ORDER_PAID', updatedOrder, orderId);
+                // --- END: SURGICAL ADDITION ---
+                console.log(`Updated order [${orderId}] status to [PAID] and emitted ORDER_PAID event.`);
+
             } else if (status === 'PAYMENT_FAILURE') {
-                dataToUpdate.status = 'FAILED';
-                dataToUpdate.paymentTransactionId = transactionId;
-                dataToUpdate.paymentFailureReason = reason;
-                const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true }});
-                if (order) {
-                    // This now emits a generic CANCELLED event, which product-service consumes for stock reversal.
-                    const eventPayload = { ...order, customerEmail: order.guestEmail /* simplified */ };
-                    await sendMessage('ORDER_CANCELLED', eventPayload, order.id);
-                }
+                await prisma.order.update({
+                    where: { id: orderId },
+                    data: {
+                        status: 'FAILED',
+                        paymentTransactionId: transactionId,
+                        paymentFailureReason: reason
+                    },
+                });
+                const eventPayload = { ...order, customerEmail: order.guestEmail };
+                await sendMessage('ORDER_CANCELLED', eventPayload, order.id);
+                console.log(`Updated order [${orderId}] status to [FAILED] and emitted ORDER_CANCELLED for stock reversal.`);
+
             } else if (status === 'PAYMENT_REFUNDED') {
-                // Here we can log the refund transaction ID. The status is already CANCELLED.
-                // In a real system, you might add a separate field for `refundTransactionId`.
                 console.log(`Order [${orderId}] was successfully refunded. Refund TXN ID: [${refundTransactionId}]`);
             } else if (status === 'PAYMENT_REFUND_FAILED') {
                 console.error(`CRITICAL: Refund for order [${orderId}] failed. Reason: ${reason}. Manual intervention required.`);
-            }
-
-            if (dataToUpdate.status) {
-                await prisma.order.update({
-                    where: { id: orderId },
-                    data: dataToUpdate,
-                });
-                console.log(`Updated order [${orderId}] status to [${dataToUpdate.status}] with transaction details.`);
             }
         }
 

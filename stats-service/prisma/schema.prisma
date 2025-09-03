@@ -8,22 +8,40 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model DailyAggregate {
-  date               DateTime @id @db.Date
-  revenue            Decimal  @default(0) @db.Decimal(12, 2)
-  cogs               Decimal  @default(0) @db.Decimal(12, 2)
-  orderCount         Int      @default(0)
-  newCustomerCount   Int      @default(0)
-
-  @@map("daily_aggregates")
+model Kpi {
+  key   String  @id
+  value Decimal @db.Decimal(18, 2)
+  label String
 }
 
-model ProductPerformance {
-  productId             String   @id
-  productName           String
-  totalUnitsSold        Int      @default(0)
-  totalRevenueGenerated Decimal  @default(0) @db.Decimal(12, 2)
-  updatedAt             DateTime @updatedAt
+model MonthlyAggregate {
+  year          Int
+  month         Int
+  totalRevenue  Decimal @default(0) @db.Decimal(18, 2)
+  totalExpenses Decimal @default(0) @db.Decimal(18, 2)
+  newOrders     Int     @default(0)
+  newCustomers  Int     @default(0)
 
-  @@map("product_performance")
+  @@id([year, month])
+}
+
+// --- START: SURGICAL ADDITION ---
+model DailyAggregate {
+  date         DateTime @id @db.Date
+  newCustomers Int      @default(0)
+  newOrders    Int      @default(0)
+  totalRevenue Decimal  @default(0) @db.Decimal(18, 2)
+}
+// --- END: SURGICAL ADDITION ---
+
+model ProductPerformance {
+  variantId             String  @id
+  productId             String
+  productName           Json
+  variantAttributes     Json
+  totalQuantitySold     Int     @default(0)
+  totalRevenueGenerated Decimal @default(0) @db.Decimal(18, 2)
+
+  @@index([productId])
+  @@index([totalRevenueGenerated])
 }

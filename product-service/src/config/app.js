@@ -8,6 +8,7 @@ const productRoutes = require('../modules/product/product.routes');
 const variantRoutes = require('../modules/variant/variant.routes');
 const stockRoutes = require('../modules/stock/stock.routes');
 const currencyRoutes = require('../modules/currency/currency.routes');
+const promotionRoutes = require('../modules/promotion/promotion.routes'); // --- START: SURGICAL ADDITION ---
 const errorHandler = require('../middlewares/errorHandler');
 
 const app = express();
@@ -29,6 +30,7 @@ app.use('/categories', categoryRoutes);
 app.use('/variants', variantRoutes);
 app.use('/stock', stockRoutes);
 app.use('/currencies', currencyRoutes);
+app.use('/promotions', promotionRoutes); // --- START: SURGICAL ADDITION ---
 app.use('/', productRoutes);
 
 

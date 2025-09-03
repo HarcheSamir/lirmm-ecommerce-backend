@@ -116,3 +116,23 @@ model CurrencyRate {
 
   @@map("currency_rates")
 }
+
+// --- START: SURGICAL ADDITION ---
+model Promotion {
+  id              String    @id @default(uuid())
+  title           Json
+  subtitle        Json?
+  tagline         Json?
+  ctaText         Json
+  ctaLink         String
+  imageUrl        String
+  productImageUrl String?
+  expiresAt       DateTime?
+  isActive        Boolean   @default(false)
+  displayOrder    Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([isActive, displayOrder])
+}
+// --- END: SURGICAL ADDITION ---

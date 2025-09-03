@@ -13,40 +13,40 @@ const returnRequestInclude = {
 };
 
 const orderInclude = {
-  items: true,
-  user: true,
-  returnRequests: {
-      include: { items: { include: { orderItem: true } }, comments: { orderBy: { createdAt: 'asc' } } }
-  }
+    items: true,
+    user: true,
+    returnRequests: {
+        include: { items: { include: { orderItem: true } }, comments: { orderBy: { createdAt: 'asc' } } }
+    }
 };
 
 const createError = (message, statusCode) => {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
+    const error = new Error(message);
+    error.statusCode = statusCode;
+    return error;
 };
 
 const isOrderCancellable = (order) => ['PENDING', 'PAID'].includes(order.status);
 const isOrderReturnable = (order) => order.status === 'DELIVERED';
 
 const formatOrderResponse = (order, lang = 'en') => {
-  if (!order) return null;
-  const { user, ...restOfOrder } = order;
-  const items = order.items.map(item => ({
-      ...item,
-      productName: (item.productName && typeof item.productName === 'object')
-          ? item.productName[lang] || item.productName['en']
-          : item.productName
-  }));
-  return {
-    ...restOfOrder,
-    items,
-    isCancellable: isOrderCancellable(order),
-    isReturnable: isOrderReturnable(order),
-    customerName: user?.name || order.guestName || 'Guest',
-    customerEmail: user?.email || order.guestEmail,
-    customerAvatar: user?.profileImage || null
-  };
+    if (!order) return null;
+    const { user, ...restOfOrder } = order;
+    const items = order.items.map(item => ({
+        ...item,
+        productName: (item.productName && typeof item.productName === 'object')
+            ? item.productName[lang] || item.productName['en']
+            : item.productName
+    }));
+    return {
+        ...restOfOrder,
+        items,
+        isCancellable: isOrderCancellable(order),
+        isReturnable: isOrderReturnable(order),
+        customerName: user?.name || order.guestName || 'Guest',
+        customerEmail: user?.email || order.guestEmail,
+        customerAvatar: user?.profileImage || null
+    };
 };
 
 const formatReturnRequestResponse = (returnRequest) => {
@@ -56,71 +56,72 @@ const formatReturnRequestResponse = (returnRequest) => {
 };
 
 const createOrder = async (req, res, next) => {
-  const { items, shippingAddress, guestEmail, guestName, phone, paymentMethod } = req.body;
-  const email = req.user?.email || guestEmail;
-  const lang = req.headers['accept-language']?.split(',')[0] || 'en';
-  const displayCurrency = req.headers['x-currency']?.toUpperCase() || 'USD';
+    const { items, shippingAddress, guestEmail, guestName, phone, paymentMethod, overrideCreatedAt } = req.body;
+    const email = req.user?.email || guestEmail;
+    const lang = req.headers['accept-language']?.split(',')[0] || 'en';
+    const displayCurrency = req.headers['x-currency']?.toUpperCase() || 'USD';
 
-  if (!email || !phone || !Array.isArray(items) || items.length === 0) {
-      return next(createError('Email, phone, and at least one item are required.', 400));
-  }
-  
-  try {
-      let baseTotalAmount = 0;
-      const orderItemsData = [];
-
-      for(const item of items) {
-          if (!item.productId || !item.productName || !item.sku || item.baseCurrency === undefined || item.price === undefined ) {
-              throw createError(`Incomplete product data for variant ${item.variantId} received.`, 500);
-          }
-          baseTotalAmount += (parseFloat(item.price) * item.quantity);
-          orderItemsData.push({
-              productId: item.productId, variantId: item.variantId, productName: item.productName,
-              variantAttributes: item.attributes || {}, sku: item.sku, imageUrl: item.imageUrl,
-              priceAtTimeOfOrder: item.price, costPriceAtTimeOfOrder: item.costPrice, quantity: item.quantity
-          });
-      }
-
-      let exchangeRate = 1.0;
-      if (displayCurrency !== 'USD') {
-        try {
-            const { data: rateData } = await axios.get(`${PRODUCT_SERVICE_URL}/currencies/internal/rates/${displayCurrency}`);
-            exchangeRate = rateData.rateVsBase;
-        } catch (e) {
-            console.error(`Failed to fetch exchange rate for ${displayCurrency}. Defaulting to base.`);
-            return next(createError(`Currency '${displayCurrency}' is not supported.`, 400));
-        }
-      }
-
-      const displayTotalAmount = baseTotalAmount * parseFloat(exchangeRate);
-      
-      const newOrder = await prisma.order.create({
-        data: {
-          userId: req.user?.id, phone: phone, guestEmail: req.user ? null : email, guestName: req.user ? null : guestName,
-          guest_token: req.user ? null : crypto.randomBytes(32).toString('hex'),
-          shippingAddress, paymentMethod, status: 'PENDING',
-          totalAmount: baseTotalAmount,
-          displayCurrency: displayCurrency,
-          exchangeRateAtPurchase: exchangeRate,
-          displayTotalAmount: displayTotalAmount,
-          items: { create: orderItemsData }
-        },
-        include: orderInclude
-      });
-
-    const eventPayload = { ...newOrder, customerEmail: newOrder.user?.email || newOrder.guestEmail };
-    await sendMessage('ORDER_CREATED', eventPayload, newOrder.id);
-
-    if (paymentMethod === 'CREDIT_CARD') {
-        axios.post(`${PAYMENT_SERVICE_URL}/process`, {
-          orderId: newOrder.id, amount: newOrder.totalAmount, userEmail: email
-        }).catch(e => console.error(`Payment initiation failed for order ${newOrder.id}: ${e.message}`));
+    if (!email || !phone || !Array.isArray(items) || items.length === 0) {
+        return next(createError('Email, phone, and at least one item are required.', 400));
     }
-    res.status(201).json(formatOrderResponse(newOrder, lang));
-  } catch (error) {
-    const message = error.response?.data?.message || error.message;
-    return next(createError(message, error.statusCode || 500));
-  }
+
+    try {
+        let baseTotalAmount = 0;
+        const orderItemsData = [];
+
+        for (const item of items) {
+            if (!item.productId || !item.productName || !item.sku || item.baseCurrency === undefined || item.price === undefined) {
+                throw createError(`Incomplete product data for variant ${item.variantId} received.`, 500);
+            }
+            baseTotalAmount += (parseFloat(item.price) * item.quantity);
+            orderItemsData.push({
+                productId: item.productId, variantId: item.variantId, productName: item.productName,
+                variantAttributes: item.attributes || {}, sku: item.sku, imageUrl: item.imageUrl,
+                priceAtTimeOfOrder: item.price, costPriceAtTimeOfOrder: item.costPrice, quantity: item.quantity
+            });
+        }
+
+        let exchangeRate = 1.0;
+        if (displayCurrency !== 'USD') {
+            try {
+                const { data: rateData } = await axios.get(`${PRODUCT_SERVICE_URL}/currencies/internal/rates/${displayCurrency}`);
+                exchangeRate = rateData.rateVsBase;
+            } catch (e) {
+                console.error(`Failed to fetch exchange rate for ${displayCurrency}. Defaulting to base.`);
+                return next(createError(`Currency '${displayCurrency}' is not supported.`, 400));
+            }
+        }
+
+        const displayTotalAmount = baseTotalAmount * parseFloat(exchangeRate);
+
+        const newOrder = await prisma.order.create({
+            data: {
+                createdAt: overrideCreatedAt ? new Date(overrideCreatedAt) : new Date(),
+                userId: req.user?.id, phone: phone, guestEmail: req.user ? null : email, guestName: req.user ? null : guestName,
+                guest_token: req.user ? null : crypto.randomBytes(32).toString('hex'),
+                shippingAddress, paymentMethod, status: 'PENDING',
+                totalAmount: baseTotalAmount,
+                displayCurrency: displayCurrency,
+                exchangeRateAtPurchase: exchangeRate,
+                displayTotalAmount: displayTotalAmount,
+                items: { create: orderItemsData }
+            },
+            include: orderInclude
+        });
+
+        const eventPayload = { ...newOrder, customerEmail: newOrder.user?.email || newOrder.guestEmail };
+        await sendMessage('ORDER_CREATED', eventPayload, newOrder.id);
+
+        if (paymentMethod === 'CREDIT_CARD') {
+            axios.post(`${PAYMENT_SERVICE_URL}/process`, {
+                orderId: newOrder.id, amount: newOrder.totalAmount, userEmail: email
+            }).catch(e => console.error(`Payment initiation failed for order ${newOrder.id}: ${e.message}`));
+        }
+        res.status(201).json(formatOrderResponse(newOrder, lang));
+    } catch (error) {
+        const message = error.response?.data?.message || error.message;
+        return next(createError(message, error.statusCode || 500));
+    }
 };
 
 const cancelOrder = async (req, res, next) => {
@@ -136,16 +137,16 @@ const cancelOrder = async (req, res, next) => {
         } else {
             return res.status(401).json({ message: 'Authentication is required.' });
         }
-        
+
         if (!orderToCancel) { return res.status(404).json({ message: 'Order not found or permission denied.' }); }
         if (!isOrderCancellable(orderToCancel)) { return res.status(409).json({ message: `Order cannot be cancelled. Status: '${orderToCancel.status}'.` }); }
-        
+
         const originalStatus = orderToCancel.status;
         const updatedOrder = await prisma.order.update({ where: { id }, data: { status: 'CANCELLED' }, include: orderInclude });
 
         const eventPayload = { ...updatedOrder, customerEmail: updatedOrder.user?.email || updatedOrder.guestEmail };
         await sendMessage('ORDER_CANCELLED', eventPayload, updatedOrder.id);
-        
+
         if (originalStatus === 'PAID' && updatedOrder.paymentTransactionId) {
             axios.post(`${PAYMENT_SERVICE_URL}/refund`, {
                 orderId: updatedOrder.id, amount: updatedOrder.totalAmount, originalTransactionId: updatedOrder.paymentTransactionId
@@ -156,86 +157,86 @@ const cancelOrder = async (req, res, next) => {
 };
 
 const getOrderById = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const lang = req.headers['accept-language']?.split(',')[0] || 'en';
-    const order = await prisma.order.findUnique({ where: { id }, include: orderInclude });
-    if (!order) { return res.status(404).json({ message: 'Order not found.' }); }
-    return res.json(formatOrderResponse(order, lang));
-  } catch (err) { next(err); }
+    try {
+        const { id } = req.params;
+        const lang = req.headers['accept-language']?.split(',')[0] || 'en';
+        const order = await prisma.order.findUnique({ where: { id }, include: orderInclude });
+        if (!order) { return res.status(404).json({ message: 'Order not found.' }); }
+        return res.json(formatOrderResponse(order, lang));
+    } catch (err) { next(err); }
 };
 
 const getAllOrders = async (req, res, next) => {
-  try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 10;
-    const lang = req.headers['accept-language']?.split(',')[0] || 'en';
-    const skip = (page - 1) * limit;
-    const { status, paymentMethod, search, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
-    const where = {};
-    if (status) where.status = status;
-    if (paymentMethod) where.paymentMethod = paymentMethod;
-    if (search) {
-      where.OR = [
-        { id: { contains: search, mode: 'insensitive' } }, { guestName: { contains: search, mode: 'insensitive' } },
-        { guestEmail: { contains: search, mode: 'insensitive' } }, { phone: { contains: search, mode: 'insensitive' } },
-        { items: { some: { productName: { path: [lang], string_contains: search, mode: 'insensitive' } } } },
-        { user: { name: { contains: search, mode: 'insensitive' } } }, { user: { email: { contains: search, mode: 'insensitive' } } }
-      ];
-    }
-    const orderBy = { [sortBy]: sortOrder.toLowerCase() === 'asc' ? 'asc' : 'desc' };
-    const [orders, total] = await prisma.$transaction([
-      prisma.order.findMany({ where, skip, take: limit, orderBy, include: orderInclude }),
-      prisma.order.count({ where })
-    ]);
-    const formattedData = orders.map(order => formatOrderResponse(order, lang));
-    res.json({ data: formattedData, pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }, });
-  } catch (err) { next(err); }
+    try {
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 10;
+        const lang = req.headers['accept-language']?.split(',')[0] || 'en';
+        const skip = (page - 1) * limit;
+        const { status, paymentMethod, search, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+        const where = {};
+        if (status) where.status = status;
+        if (paymentMethod) where.paymentMethod = paymentMethod;
+        if (search) {
+            where.OR = [
+                { id: { contains: search, mode: 'insensitive' } }, { guestName: { contains: search, mode: 'insensitive' } },
+                { guestEmail: { contains: search, mode: 'insensitive' } }, { phone: { contains: search, mode: 'insensitive' } },
+                { items: { some: { productName: { path: [lang], string_contains: search, mode: 'insensitive' } } } },
+                { user: { name: { contains: search, mode: 'insensitive' } } }, { user: { email: { contains: search, mode: 'insensitive' } } }
+            ];
+        }
+        const orderBy = { [sortBy]: sortOrder.toLowerCase() === 'asc' ? 'asc' : 'desc' };
+        const [orders, total] = await prisma.$transaction([
+            prisma.order.findMany({ where, skip, take: limit, orderBy, include: orderInclude }),
+            prisma.order.count({ where })
+        ]);
+        const formattedData = orders.map(order => formatOrderResponse(order, lang));
+        res.json({ data: formattedData, pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }, });
+    } catch (err) { next(err); }
 };
 
 const getMyOrders = async (req, res, next) => {
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit, 10) || 10;
-    const lang = req.headers['accept-language']?.split(',')[0] || 'en';
-    const skip = (page - 1) * limit;
-    const where = { userId: req.user.id };
-    const [orders, total] = await prisma.$transaction([
-      prisma.order.findMany({ where, skip, take: limit, orderBy: { createdAt: 'desc' }, include: orderInclude }),
-      prisma.order.count({ where })
-    ]);
-    const formattedData = orders.map(order => formatOrderResponse(order, lang));
-    res.json({ data: formattedData, pagination: { total, page, limit, totalPages: Math.ceil(total / limit) } });
-  } catch (err) { next(err); }
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit, 10) || 10;
+        const lang = req.headers['accept-language']?.split(',')[0] || 'en';
+        const skip = (page - 1) * limit;
+        const where = { userId: req.user.id };
+        const [orders, total] = await prisma.$transaction([
+            prisma.order.findMany({ where, skip, take: limit, orderBy: { createdAt: 'desc' }, include: orderInclude }),
+            prisma.order.count({ where })
+        ]);
+        const formattedData = orders.map(order => formatOrderResponse(order, lang));
+        res.json({ data: formattedData, pagination: { total, page, limit, totalPages: Math.ceil(total / limit) } });
+    } catch (err) { next(err); }
 };
 
 const getGuestOrder = async (req, res, next) => {
-  try {
-    const { orderId, email, token } = req.body;
-    const lang = req.headers['accept-language']?.split(',')[0] || 'en';
-    let order;
-    if (token) {
-        order = await prisma.order.findFirst({ where: { id: orderId, guest_token: token }, include: orderInclude });
-    } else if (orderId && email) {
-        order = await prisma.order.findFirst({ where: { id: orderId, guestEmail: email }, include: orderInclude });
-    } else {
-        return res.status(400).json({ message: 'Order ID and email/token are required.' });
-    }
-    if (!order) { return res.status(404).json({ message: 'Order not found or credentials do not match.' }); }
-    res.json(formatOrderResponse(order, lang));
-  } catch (err) { next(err); }
+    try {
+        const { orderId, email, token } = req.body;
+        const lang = req.headers['accept-language']?.split(',')[0] || 'en';
+        let order;
+        if (token) {
+            order = await prisma.order.findFirst({ where: { id: orderId, guest_token: token }, include: orderInclude });
+        } else if (orderId && email) {
+            order = await prisma.order.findFirst({ where: { id: orderId, guestEmail: email }, include: orderInclude });
+        } else {
+            return res.status(400).json({ message: 'Order ID and email/token are required.' });
+        }
+        if (!order) { return res.status(404).json({ message: 'Order not found or credentials do not match.' }); }
+        res.json(formatOrderResponse(order, lang));
+    } catch (err) { next(err); }
 };
 
 const updateOrderStatus = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-    const lang = req.headers['accept-language']?.split(',')[0] || 'en';
-    if (!await prisma.order.findUnique({ where: { id } })) { return res.status(404).json({ message: 'Order not found' }); }
-    if (status === 'CANCELLED') { return res.status(400).json({ message: 'Use the dedicated cancellation endpoint to cancel an order.'}); }
-    const updatedOrder = await prisma.order.update({ where: { id }, data: { status }, include: orderInclude });
-    res.json(formatOrderResponse(updatedOrder, lang));
-  } catch (err) { next(err); }
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+        const lang = req.headers['accept-language']?.split(',')[0] || 'en';
+        if (!await prisma.order.findUnique({ where: { id } })) { return res.status(404).json({ message: 'Order not found' }); }
+        if (status === 'CANCELLED') { return res.status(400).json({ message: 'Use the dedicated cancellation endpoint to cancel an order.' }); }
+        const updatedOrder = await prisma.order.update({ where: { id }, data: { status }, include: orderInclude });
+        res.json(formatOrderResponse(updatedOrder, lang));
+    } catch (err) { next(err); }
 };
 
 const verifyPurchase = async (req, res, next) => {
@@ -263,13 +264,13 @@ const createReturnRequest = async (req, res, next) => {
         if (!order) { return res.status(404).json({ message: 'Order not found or permission denied.' }); }
         if (!isOrderReturnable(order)) { return res.status(409).json({ message: `Order status '${order.status}' is not returnable.` }); }
         if (await prisma.returnRequest.findFirst({ where: { orderId } })) { return res.status(409).json({ message: `A return request for this order already exists.` }); }
-        
+
         const returnItemsData = items.map(item => {
             const orderItem = order.items.find(oi => oi.id === item.orderItemId);
             if (!orderItem || item.quantity > orderItem.quantity) { throw createError(`Invalid item or quantity for ${item.orderItemId}.`, 400); }
             return { orderItemId: item.orderItemId, quantity: item.quantity };
         });
-        
+
         const newReturnRequest = await prisma.returnRequest.create({
             data: { orderId, reason, imageUrls, items: { create: returnItemsData } },
             include: returnRequestInclude
@@ -292,7 +293,7 @@ const getAllReturnRequests = async (req, res, next) => {
         const { status, search } = req.query;
         const where = {};
         if (status) where.status = status;
-        if (search) { where.OR = [ { id: { contains: search, mode: 'insensitive' } }, { orderId: { contains: search, mode: 'insensitive' } } ]; }
+        if (search) { where.OR = [{ id: { contains: search, mode: 'insensitive' } }, { orderId: { contains: search, mode: 'insensitive' } }]; }
         const [requests, total] = await prisma.$transaction([
             prisma.returnRequest.findMany({ where, skip, take: limit, orderBy: { createdAt: 'desc' }, include: returnRequestInclude }),
             prisma.returnRequest.count({ where })
@@ -332,7 +333,7 @@ const manageReturnRequest = async (req, res, next) => {
             }
             for (const item of updatedRequest.items) {
                 axios.post(`${PRODUCT_SERVICE_URL}/stock/adjust/${item.orderItem.variantId}`, {
-                    changeQuantity: item.quantity, type: 'RETURN_RESTOCK', reason: `Return request completed: ${id}`, relatedOrderId:updatedRequest.orderId,
+                    changeQuantity: item.quantity, type: 'RETURN_RESTOCK', reason: `Return request completed: ${id}`, relatedOrderId: updatedRequest.orderId,
                 }).catch(e => console.error(`CRITICAL: Stock restock failed for return ${id}, variant ${item.orderItem.variantId}: ${e.message}`));
             }
         }
@@ -352,7 +353,7 @@ const createReturnRequestComment = async (req, res, next) => {
                 ? await prisma.returnRequest.findUnique({ where: { id: returnRequestId }, include: { order: { include: { user: true } } } })
                 : await prisma.returnRequest.findFirst({ where: { id: returnRequestId, order: { userId: req.user.id } }, include: { order: { include: { user: true } } } });
         } else if (guest_token) {
-            returnRequest = await prisma.returnRequest.findFirst({ where: { id: returnRequestId, order: { guest_token }}, include: { order: { include: { user: true } } } });
+            returnRequest = await prisma.returnRequest.findFirst({ where: { id: returnRequestId, order: { guest_token } }, include: { order: { include: { user: true } } } });
         } else {
             return res.status(401).json({ message: 'Authentication is required.' });
         }
@@ -385,19 +386,19 @@ const seedGuestOrders = async (req, res, next) => {
 // --- END SURGICAL ADDITION ---
 
 module.exports = {
-  createOrder,
-  cancelOrder,
-  getOrderById,
-  getAllOrders,
-  getMyOrders,
-  updateOrderStatus,
-  getGuestOrder,
-  verifyPurchase,
-  createReturnRequest,
-  getMyReturnRequests,
-  getAllReturnRequests,
-  getReturnRequestById,
-  manageReturnRequest,
-  createReturnRequestComment,
-  seedGuestOrders, // --- SURGICALLY ADDED TO EXPORTS ---
+    createOrder,
+    cancelOrder,
+    getOrderById,
+    getAllOrders,
+    getMyOrders,
+    updateOrderStatus,
+    getGuestOrder,
+    verifyPurchase,
+    createReturnRequest,
+    getMyReturnRequests,
+    getAllReturnRequests,
+    getReturnRequestById,
+    manageReturnRequest,
+    createReturnRequestComment,
+    seedGuestOrders, // --- SURGICALLY ADDED TO EXPORTS ---
 };
