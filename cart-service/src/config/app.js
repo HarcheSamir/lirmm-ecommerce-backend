@@ -3,7 +3,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const cartRoutes = require('../modules/cart/cart.routes');
 const errorHandler = require('../middlewares/errorHandler');
-const { redisClient } = require('./redis'); // Import redisClient for health check
+const { redisClient } = require('./redis'); 
 
 const app = express();
 
@@ -19,7 +19,6 @@ if (process.env.NODE_ENV !== 'development') {
 // Health Check Endpoint
 app.get('/health', async (req, res) => {
     try {
-        // Check Redis connection
         const pingResponse = await redisClient.ping();
         if (pingResponse !== 'PONG') {
             throw new Error('Redis ping failed');
@@ -44,9 +43,7 @@ app.get('/health', async (req, res) => {
     }
 });
 
-// API Routes
-// Mount cart routes under /
-// (API Gateway will route /carts to here, so internal routes are simpler)
+
 app.use('/', cartRoutes);
 
 

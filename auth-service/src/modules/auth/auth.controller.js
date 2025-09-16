@@ -18,7 +18,6 @@ const completeInvitation = async (req, res, next) => {
     }
 
     if (user.invitationExpires < new Date()) {
-      // For expired tokens, we could implement a re-send logic, but for now we delete the pending user.
       await prisma.user.delete({ where: { id: user.id } });
       return res.status(410).json({ message: 'Invitation has expired. Please ask for a new one.' });
     }

@@ -11,9 +11,6 @@ const createError = (message, statusCode) => {
     return error;
 };
 
-// ====================================================================
-// NEW FUNCTION: To associate a cart with a user ID after login.
-// ====================================================================
 const associateCartWithUser = async (req, res, next) => {
     try {
         const { cartId, userId } = req.body;
@@ -25,8 +22,7 @@ const associateCartWithUser = async (req, res, next) => {
         const cartDataString = await redisClient.get(cartKey);
 
         if (!cartDataString) {
-            // If the cart doesn't exist, it might have expired. It's safe to just return success.
-            // The frontend will create a new one on the next action.
+ 
             return res.status(200).json({ message: 'Cart not found, no association needed.' });
         }
 

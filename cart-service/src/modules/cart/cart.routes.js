@@ -7,15 +7,12 @@ const {
     removeItemFromCart,
     clearCart,
     deleteCart,
-    associateCartWithUser // <-- IMPORT NEW CONTROLLER
+    associateCartWithUser 
 } = require('./cart.controller');
 
 const router = express.Router();
 
-// Route to associate a guest cart with a newly logged-in user
-router.post('/associate', associateCartWithUser); // <-- ADD NEW ROUTE
-
-// Existing Routes...
+router.post('/associate', associateCartWithUser); 
 router.post('/', getOrCreateCart);
 router.get('/:cartId', getCartById);
 router.post('/:cartId/items', addItemToCart);

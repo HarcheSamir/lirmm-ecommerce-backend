@@ -11,11 +11,8 @@ router.get('/internal/total-count', getTotalUserCount);
 
 router.use(authMiddleware);
 
-// --- NEW INVITATION ROUTE ---
 router.post('/invite', hasPermission('write:user'), inviteUser);
-// --- END NEW ROUTE ---
 
-// --- FIX: Use singular permission names ---
 router.get('/', hasPermission('read:user'), getAllUsers);
 router.get('/:id', hasPermission('read:user'), getUserById);
 router.put('/:id', hasPermission('write:user'), updateUser);

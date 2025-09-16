@@ -17,13 +17,11 @@ app.get('/health', (req, res) => {
     res.status(200).json({ status: 'UP', service: process.env.SERVICE_NAME });
 });
 
-app.use('/', orderRoutes); // Mount at root, API Gateway will handle /orders prefix
+app.use('/', orderRoutes); 
 
 app.use(errorHandler);
 
-// Index.js will start the server
 const startApp = async () => {
-    // any async startup logic can go here
 };
 
 module.exports = { app, startApp };

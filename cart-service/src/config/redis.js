@@ -28,9 +28,7 @@ redisClient.on('ready', () => {
 
 redisClient.on('error', (err) => {
   console.error(`[${SERVICE_NAME}] Redis Error:`, err.message);
-  // Note: ioredis handles reconnection automatically based on retryStrategy.
-  // No need to process.exit(1) here unless Redis is absolutely critical at startup
-  // and can't be recovered. The health check will report the status.
+
 });
 
 redisClient.on('close', () => {

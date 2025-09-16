@@ -7,7 +7,6 @@ class QLearningAgent:
     This agent learns a policy to distribute traffic across three pods (v1, v2, v3)
     based on their performance (latency and CPU).
     """
-    # --- THIS IS THE ONLY LINE THAT HAS BEEN CHANGED ---
     def __init__(self, learning_rate=0.2, discount_factor=0.9, exploration_rate=1.0, exploration_decay=0.99):
         """
         Initializes the agent and its Q-Table.

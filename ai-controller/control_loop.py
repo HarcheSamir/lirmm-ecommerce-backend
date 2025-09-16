@@ -112,7 +112,7 @@ def main():
     # --- Initialize Connections ---
     # Connect to Kubernetes API
     try:
-        config.load_kube_config() # Assumes you have a valid kubeconfig file
+        config.load_kube_config() 
         k8s_custom_api = client.CustomObjectsApi()
         print("INFO: Successfully connected to Kubernetes API.")
     except Exception as e:

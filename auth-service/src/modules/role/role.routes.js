@@ -8,7 +8,6 @@ const hasPermission = require('../../middlewares/permission');
 const router = express.Router();
 router.use(authMiddleware);
 
-// --- FIX: Use singular permission names ---
 router.get('/', hasPermission('read:role'), getAllRoles);
 router.post('/', hasPermission('write:role'), createRole);
 router.get('/:id', hasPermission('read:role'), getRoleById);

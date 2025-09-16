@@ -11,7 +11,6 @@ const roleSelect = {
             permission: { select: { id: true, name: true, description: true } }
         }
     },
-    // --- MODIFICATION: Fetch associated users ---
     users: {
         take: 5, // Limit to the first 5 users for performance
         select: {
@@ -23,12 +22,10 @@ const roleSelect = {
             createdAt: 'asc' // To get a consistent set of users
         }
     },
-    // --- END MODIFICATION ---
     _count: { select: { users: true } }
 };
 
 // Helper to format role response
-// No change needed here, as the `...rest` spread will now include the new `users` field.
 const formatRole = (role) => {
     if (!role) return null;
     const { _count, ...rest } = role;

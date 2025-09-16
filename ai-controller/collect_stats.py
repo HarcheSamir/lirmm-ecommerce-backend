@@ -3,13 +3,12 @@ import csv
 import time
 from datetime import datetime, timezone
 import os
-import sys # <-- ADD THIS LINE
+import sys
 
 # --- Configuration ---
 PROMETHEUS_URL = "http://localhost:9090"
 OUTPUT_DIR = "prometheus-stats"
 
-# ... (The QUERIES dictionary remains the same) ...
 QUERIES = {
     "rps_per_pod": {
         "query": 'sum(rate(istio_requests_total{reporter="destination", destination_workload=~"product-service-v.-deployment", namespace="lirmm-services"}[1m])) by (destination_workload)',
@@ -38,7 +37,6 @@ EXPERIMENT_DURATION_SECONDS = 1800 # 30 minutes
 SCRAPE_INTERVAL_SECONDS = 15
 
 def query_prometheus(query):
-    # ... (This function remains the same) ...
     try:
         url = f"{PROMETHEUS_URL}/api/v1/query"
         response = requests.get(url, params={'query': query})
@@ -54,7 +52,6 @@ def query_prometheus(query):
         return []
 
 def main(experiment_name="baseline"):
-    # ... (This function remains the same) ...
     print(f"--- Starting data collection for '{experiment_name}' experiment ---")
     
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -112,9 +109,7 @@ def main(experiment_name="baseline"):
 
 
 if __name__ == "__main__":
-    # --- THIS IS THE CHANGED SECTION ---
-    # Check if a command-line argument for the experiment name was provided.
-    # sys.argv[0] is the script name itself, sys.argv[1] is the first argument.
+
     if len(sys.argv) > 1:
         exp_name = sys.argv[1]
     else:
@@ -122,4 +117,3 @@ if __name__ == "__main__":
         exp_name = "baseline"
     
     main(exp_name)
-    # --- END OF CHANGED SECTION ---

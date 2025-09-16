@@ -89,7 +89,7 @@ app.use(
         target: serviceUrlMap['order-service'],
         changeOrigin: true,
         pathRewrite: {
-            '^/orders': '', // This correctly rewrites /orders/123 to /123
+            '^/orders': '', 
         },
     })
 );

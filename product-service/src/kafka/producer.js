@@ -20,7 +20,6 @@ const kafka = new Kafka({
 });
 
 const producer = kafka.producer({
-    // Consider idempotence: enableIdempotence: true (requires more config on broker/producer)
 });
 let isConnected = false;
 
@@ -33,8 +32,7 @@ const connectProducer = async () => {
     } catch (error) {
         console.error('Failed to connect Kafka producer:', error);
         isConnected = false;
-        // Implement more robust retry or exit strategy if connection is critical
-        throw error; // Re-throw to potentially stop server startup
+        throw error; 
     }
 };
 
@@ -52,9 +50,6 @@ const disconnectProducer = async () => {
 const sendMessage = async (type, payload, key = null) => {
     if (!isConnected) {
         console.error(`Kafka producer is not connected. Message Type [${type}] not sent.`);
-        // Optional: Attempt reconnect or queue message? For simplicity, we just log.
-        // try { await connectProducer(); } catch { /* ignore */ }
-        // if (!isConnected) return;
         return; // Fail fast if not connected
     }
 
@@ -66,7 +61,6 @@ const sendMessage = async (type, payload, key = null) => {
             sourceService: SERVICE_NAME,
         };
 
-        // Use provided key or default based on payload structure (e.g., product ID, variant ID)
         const messageKey = key || payload?.id?.toString() || payload?.productId?.toString() || null;
 
         await producer.send({
@@ -74,13 +68,11 @@ const sendMessage = async (type, payload, key = null) => {
             messages: [
                 { key: messageKey, value: JSON.stringify(message) },
             ],
-            // acks: -1 // For higher durability guarantee (waits for all in-sync replicas) - default is 1
         });
         console.log(`KAFKA: Message sent to topic [${KAFKA_TOPIC}] | Type: [${type}] | Key: [${messageKey || 'N/A'}]`);
     } catch (error) {
         console.error(`KAFKA: Failed to send message to topic [${KAFKA_TOPIC}] | Type: [${type}] | Error:`, error);
-        // Implement more robust error handling (e.g., retry, dead-letter queue)
-        // Potentially re-throw if sending is critical for the operation
+
     }
 };
 
@@ -88,5 +80,5 @@ module.exports = {
     connectProducer,
     disconnectProducer,
     sendMessage,
-    KAFKA_TOPIC, // Export topic name if needed elsewhere
+    KAFKA_TOPIC,
 };

@@ -376,14 +376,10 @@ const createReturnRequestComment = async (req, res, next) => {
     } catch (err) { next(err); }
 };
 
-// --- SURGICALLY ADDED MISSING FUNCTION ---
 const seedGuestOrders = async (req, res, next) => {
-    // This is a placeholder as the original logic was not provided.
-    // It is now a valid function that prevents the server crash.
     console.log('Received request to seed guest orders. This functionality is a placeholder.');
     res.status(200).json({ message: 'Seed request received (placeholder implementation).' });
 };
-// --- END SURGICAL ADDITION ---
 
 module.exports = {
     createOrder,
@@ -400,5 +396,5 @@ module.exports = {
     getReturnRequestById,
     manageReturnRequest,
     createReturnRequestComment,
-    seedGuestOrders, // --- SURGICALLY ADDED TO EXPORTS ---
+    seedGuestOrders, 
 };

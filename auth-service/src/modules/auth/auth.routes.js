@@ -15,9 +15,7 @@ router.post('/login', login);
 router.get('/me', authMiddleware, me);
 router.post('/validate', validateToken);
 
-// --- NEW INVITATION COMPLETION ROUTE ---
 router.post('/complete-invitation', completeInvitation);
-// --- END NEW ROUTE ---
 
 router.post('/resync-users', resyncAllUsers);
 
