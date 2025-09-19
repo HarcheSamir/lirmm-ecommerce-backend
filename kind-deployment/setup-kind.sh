@@ -55,7 +55,7 @@ EOF
 
 install_istio_addons() {
     echo "--- Installing Istio addons (Kiali, Prometheus, Grafana) ---"
-    ISTIO_DIR_PATH=$(dirname "$(dirname "$(which istioctl)")")
+    ISTIO_DIR_PATH="/home/harch/istio-1.26.3"
 
     # --- START: VERIFIED ISTIO ADDONS RELIABILITY FIX ---
     # Pre-load addon images based on the exact versions in your local Istio installation files.

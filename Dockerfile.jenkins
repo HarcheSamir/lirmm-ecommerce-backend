@@ -5,9 +5,7 @@ FROM jenkins/jenkins:lts-jdk17
 USER root
 
 # Install prerequisite packages for adding new repositories and tools
-# --> ADDED 'git' TO THIS LIST <--
 RUN apt-get update && apt-get install -y \
-    git \
     apt-transport-https \
     ca-certificates \
     curl \
@@ -36,5 +34,4 @@ RUN chmod +x ./kind
 RUN mv ./kind /usr/local/bin/kind
 
 # Switch back to the standard, non-root jenkins user
-# --> CORRECTED THIS LINE <--
 USER jenkins
