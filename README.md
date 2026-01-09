@@ -159,9 +159,72 @@ After a 2-minute "exploration/learning" phase, the AI converged on an optimal po
 ### High-Level Architecture
 The system follows a Microservices pattern with **Polyglot Persistence** and **Event-Driven Architecture (Kafka)**.
 
-<div align="center">
+```mermaid
+graph TB
+    subgraph AI_Control_Plane["AI Control Plane"]
+        AI_Controller["AI Controller"]
+        AI_Controller -->|Query| Prometheus
+        AI_Controller -->|Action PATCH| K8s_API["K8s API / Istio"]
+    end
+    
+    User -->|HTTPS| Ingress_Gateway["Ingress & API Gateway"]
+    
+    Prometheus -.->|Scrapes| User_Facing["User-Facing Services"]
+    
+    subgraph Ingress_Gateway
+        Istio_Gateway["Istio Ingress Gateway"]
+        API_Gateway["API Gateway"]
+    end
+    
+    Ingress_Gateway --> User_Facing
+    Ingress_Gateway --> Core_Microservices["Core Microservices"]
+    
+    subgraph User_Facing["User-Facing Services"]
+        Cart
+        Search
+        Review
+        Image
+    end
+    
+    subgraph Core_Microservices["Core Microservices"]
+        Order
+        Auth
+        Product
+    end
+    
+    Review -->|review_events| Kafka_Bus["Kafka Event Bus"]
+    Order -->|order_events| Kafka_Bus
+    Auth -->|auth_events| Kafka_Bus
+    Product -->|product_events| Kafka_Bus
+    
+    subgraph Infrastructure["Infrastructure & Data"]
+        Redis
+        Elasticsearch
+        PostgreSQL
+        Kafka_Bus
+    end
+    
+    User_Facing --> Redis
+    User_Facing --> Elasticsearch
+    User_Facing --> PostgreSQL
+    
+    Core_Microservices --> PostgreSQL
+    Core_Microservices --> Redis
+    
+    subgraph Support_Services["Support Services"]
+        Stats
+        Notification
+        Payment
+    end
+    
+    Kafka_Bus -->|payment_events| Payment
+    PostgreSQL --> Stats
+    Kafka_Bus --> Notification
+```
+
+<!-- <div align="center">
   <img src="assets/architecture.png" width="800">
-</div>
+</div> -->
 
 ### Data & Communication Strategy
 Services own their data. We use **Eventual Consistency** to keep data in sync (e.g., denormalizing User data into the Order service).
