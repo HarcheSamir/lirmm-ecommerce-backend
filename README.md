@@ -1,15 +1,4 @@
-# AI-Driven Self-Optimizing E-Commerce Platform
-
-<div align="center">
-  <img src="assets/Logo_ESI_SBA.png" width="150">
-  <br><br>
-  <strong>Engineering Graduation Thesis</strong>
-  <br>
-  <em>Design, Implementation, and AI-Driven Optimization of a Microservices Architecture using DevOps Principles.</em>
-  <br>
-  <strong>Author:</strong> Harche Samir
-</div>
-
+# Design, Implementation, and AI-Driven Optimization of a Microservices Architecture using DevOps Principles.
 ---
 
 ## 🚀 Operational Intelligence & Observability
@@ -35,8 +24,8 @@ Below is the live mesh visualization showing 12+ microservices communicating asy
       <td align="center"><strong>Mesh Density</strong></td>
     </tr>
     <tr>
-      <td align="center"><img src="assets/kiali_service_graph.png" width="400"></td>
-      <td align="center"><img src="assets/kiali_mesh.png" width="400"></td>
+      <td align="center"><img src="assets/kiali_service_graph.png" width="600"></td>
+      <td align="center"><img src="assets/kiali_mesh.png" width="600"></td>
     </tr>
   </table>
 </div>
@@ -47,8 +36,8 @@ The system runs on **Kubernetes (Kind)** with **Envoy Sidecars** injected into e
 <div align="center">
   <table>
     <tr>
-      <td align="center"><strong>Grafana Metrics Dashboard</strong><br><img src="assets/grafana.png" width="400"></td>
-      <td align="center"><strong>Service Health (Kiali)</strong><br><img src="assets/kiali_services.png" width="400"></td>
+      <td align="center"><strong>Grafana Metrics Dashboard</strong><br><img src="assets/grafana.png" width="600"></td>
+      <td align="center"><strong>Service Health (Kiali)</strong><br><img src="assets/kiali_services.png" width="600"></td>
     </tr>
   </table>
   <br>
@@ -68,46 +57,65 @@ The infrastructure is strictly **Infrastructure as Code (IaC)**. I implemented a
 </div>
 
 <div align="center">
-  <table>
-    <tr>
-      <td align="center"><strong>Jenkins Dashboard</strong><br><img src="assets/localhost.8080.png" width="400"></td>
-      <td align="center"><strong>Pipeline Execution</strong><br><img src="assets/.job.Infrastructure-Setup.multi-pipeline-graph2.png" width="400"></td>
-    </tr>
-    <tr>
-      <td align="center"><strong>Infrastructure Setup Job</strong><br><img src="assets/.job.Infrastructure-Setup.multi-pipeline-graph.png" width="400"></td>
-      <td align="center"><strong>App Pipeline Diagram</strong><br><img src="assets/A_Diagrammatic_Representation_of_the_Application_Jenkinsfile_Pipeline.png" width="400"></td>
-    </tr>
-  </table>
+  <div>
+    <strong>Jenkins Dashboard</strong><br>
+    <img src="assets/localhost.8080.png" width="800">
+  </div>
+
+  <br>
+
+  <div>
+    <strong>Pipeline Execution</strong><br>
+    <img src="assets/.job.Infrastructure-Setup.multi-pipeline-graph2.png" width="800">
+  </div>
+
+  <br>
+
+  <div>
+    <strong>Infrastructure Setup Job</strong><br>
+    <img src="assets/.job.Infrastructure-Setup.multi-pipeline-graph.png" width="800">
+  </div>
+
+  <br>
+
+  <div>
+    <strong>App Pipeline Diagram</strong><br>
+    <img src="assets/A_Diagrammatic_Representation_of_the_Application_Jenkinsfile_Pipeline.png" width="400">
+  </div>
 </div>
+
 
 ---
 
 ## 💻 Application Showcase
 A fully functional, full-stack E-Commerce application built with **Node.js, React, and PostgreSQL**.
 
-### Customer Facing
-<div align="center">
-  <table>
-    <tr>
-      <td align="center"><strong>Storefront</strong><br><img src="assets/store_front.png" width="400"></td>
-      <td align="center"><strong>Product Details</strong><br><img src="assets/product.png" width="400"></td>
-    </tr>
-    <tr>
-      <td align="center"><strong>Order Checkout</strong><br><img src="assets/order.png" width="400"></td>
-      <td align="center"><strong>Order History</strong><br><img src="assets/commandes.png" width="400"></td>
-    </tr>
-  </table>
-</div>
 
 ### Administrative Control
 <div align="center">
   <table>
     <tr>
-      <td align="center"><strong>Analytics Dashboard</strong><br><img src="assets/admin_dashboard.png" width="400"></td>
-      <td align="center"><strong>RBAC Management</strong><br><img src="assets/admin_rbac.png" width="400"></td>
+      <td align="center"><strong>Analytics Dashboard</strong><br><img src="assets/admin_dashboard.png" width="500"></td>
+      <td align="center"><strong>RBAC Management</strong><br><img src="assets/admin_rbac.png" width="500"></td>
     </tr>
   </table>
 </div>
+
+
+### Customer Facing
+<div align="center">
+  <table>
+    <tr>
+      <td align="center"><strong>Storefront</strong><br><img src="assets/store_front.png" width="500"></td>
+      <td align="center"><strong>Product Details</strong><br><img src="assets/product.png" width="500"></td>
+    </tr>
+    <tr>
+      <td align="center"><strong>Order Checkout</strong><br><img src="assets/order.png" width="500"></td>
+      <td align="center"><strong>Order History</strong><br><img src="assets/commandes.png" width="500"></td>
+    </tr>
+  </table>
+</div>
+
 
 ---
 
@@ -117,7 +125,7 @@ Most systems crash under high load. This system learns.
 I developed an **AI Controller** (Python) that interfaces with the Service Mesh. It uses **Reinforcement Learning (Q-Learning)** to watch system metrics (Latency, Error Rates) and dynamically patches Istio VirtualServices to route traffic efficiently.
 
 <div align="center">
-  <img src="assets/AI_Controller_Feedback_and_Control_Loop.png" width="700">
+  <img src="assets/AI_Controller_Feedback_and_Control_Loop.png" width="400">
   <p><em>The AI Control Loop</em></p>
 </div>
 
@@ -126,16 +134,23 @@ We ran stress tests using **k6** (up to 200 concurrent users).
 
 #### 1. Moderate Load (40 VUs)
 The AI stabilizes latency spikes that occur in the Round-Robin baseline.
+<div align="center">
 <img src="assets/FILENAME_FOR_EXP1.png" width="800">
+</div>
 
 #### 2. High Complexity Load (100 VUs) - **CRITICAL RESULT**
 **The Baseline System (Teal) Crashed:** Flatlined at 20 mins.
 **The AI System (Orange) Survived:** It sacrificed some latency to maintain availability, processing 27% more requests.
+<div align="center">
+
 <img src="assets/FILENAME_FOR_EXP2.png" width="800">
+</div>
 
 #### 3. Read-Intensive Load (200 VUs)
 After a 2-minute "exploration/learning" phase, the AI converged on an optimal policy, achieving **45% lower P99 latency** than the baseline.
+<div align="center">
 <img src="assets/FILENAME_FOR_EXP3.png" width="800">
+</div>
 
 ---
 
