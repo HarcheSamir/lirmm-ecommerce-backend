@@ -18,33 +18,44 @@ Below is the live mesh visualization showing 12+ microservices communicating asy
 <br>
 
 <div align="center">
-  <table>
-    <tr>
-      <td align="center"><strong>Service Graph</strong></td>
-      <td align="center"><strong>Mesh Density</strong></td>
-    </tr>
-    <tr>
-      <td align="center"><img src="assets/kiali_service_graph.png" width="600"></td>
-      <td align="center"><img src="assets/kiali_mesh.png" width="600"></td>
-    </tr>
-  </table>
+  <div>
+    <strong>Service Graph</strong><br>
+    <img src="assets/kiali_service_graph.png" width="800">
+  </div>
+
+  <br>
+
+  <div>
+    <strong>Mesh Density</strong><br>
+    <img src="assets/kiali_mesh.png" width="800">
+  </div>
 </div>
+
 
 ### Real-Time Monitoring & Infrastructure
 The system runs on **Kubernetes (Kind)** with **Envoy Sidecars** injected into every pod.
 
 <div align="center">
-  <table>
-    <tr>
-      <td align="center"><strong>Grafana Metrics Dashboard</strong><br><img src="assets/grafana.png" width="600"></td>
-      <td align="center"><strong>Service Health (Kiali)</strong><br><img src="assets/kiali_services.png" width="600"></td>
-    </tr>
-  </table>
+  <div>
+    <strong>Grafana Metrics Dashboard</strong><br>
+    <img src="assets/grafana.png" width="800">
+  </div>
+
   <br>
-  <strong>Kubernetes Pod Status (CLI)</strong>
+
+  <div>
+    <strong>Service Health (Kiali)</strong><br>
+    <img src="assets/kiali_services.png" width="800">
+  </div>
+
   <br>
-  <img src="assets/kubectl_get_pods.png" width="600">
+
+  <div>
+    <strong>Kubernetes Pod Status (CLI)</strong><br>
+    <img src="assets/kubectl_get_pods.png" width="600">
+  </div>
 </div>
+
 
 ---
 
@@ -230,13 +241,13 @@ graph TB
 Services own their data. We use **Eventual Consistency** to keep data in sync (e.g., denormalizing User data into the Order service).
 
 <div align="center">
+  <img src="assets/Eventual_Consistency_via_Kafka_for_User_Data_Denormalization.png" width="400"><br>
   <img src="assets/Polyglot_Persistence_Strategy_Across_Services.png" width="400">
-  <img src="assets/Eventual_Consistency_via_Kafka_for_User_Data_Denormalization.png" width="400">
 </div>
 
 ### AI & Traffic Engineering
 <div align="center">
-  <img src="assets/Operational_Flow_of_the_AI_Controller_Learning_Cycle.png" width="400">
+  <img src="assets/Operational_Flow_of_the_AI_Controller_Learning_Cycle.png" width="400"><br>
   <img src="assets/Istio_Traffic_Routing_for_the_product-service_(Baseline_Scenario).png" width="400">
   <br><br>
   <img src="assets/Istio's_Layered_Traffic_Management_for_Internal_Services.png" width="600">
