@@ -80,14 +80,17 @@ install_istio_addons() {
         kubectl apply -f "$ISTIO_DIR_PATH/samples/addons/kiali.yaml"
         kubectl apply -f "$ISTIO_DIR_PATH/samples/addons/prometheus.yaml"
         kubectl apply -f "$ISTIO_DIR_PATH/samples/addons/grafana.yaml"
-
-        echo "--- Waiting for selected addons to be ready ---"
-        kubectl wait --for=condition=Available deployment/kiali -n istio-system --timeout=10m || echo "--- WARNING: Kiali may not be fully ready ---"
-        kubectl wait --for=condition=Available deployment/prometheus -n istio-system --timeout=10m || echo "--- WARNING: Prometheus may not be fully ready ---"
-        kubectl wait --for=condition=Available deployment/grafana -n istio-system --timeout=10m || echo "--- WARNING: Grafana may not be fully ready ---"
     else
-        echo "--- WARNING: Could not find Istio samples/addons directory at '$ISTIO_DIR_PATH/samples/addons'. Skipping addon installation. ---"
+        echo "--- WARNING: Local Istio addons directory not found. Fetching directly from GitHub... ---"
+        kubectl apply -f https://raw.githubusercontent.com/istio/istio/master/samples/addons/kiali.yaml
+        kubectl apply -f https://raw.githubusercontent.com/istio/istio/master/samples/addons/prometheus.yaml
+        kubectl apply -f https://raw.githubusercontent.com/istio/istio/master/samples/addons/grafana.yaml
     fi
+
+    echo "--- Waiting for selected addons to be ready ---"
+    kubectl wait --for=condition=Available deployment/kiali -n istio-system --timeout=10m || echo "--- WARNING: Kiali may not be fully ready ---"
+    kubectl wait --for=condition=Available deployment/prometheus -n istio-system --timeout=10m || echo "--- WARNING: Prometheus may not be fully ready ---"
+    kubectl wait --for=condition=Available deployment/grafana -n istio-system --timeout=10m || echo "--- WARNING: Grafana may not be fully ready ---"
 }
 
 setup_namespace() {
